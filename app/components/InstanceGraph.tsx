@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
+import TenantSidebar, { SidebarItem } from './TenantSidebar';
 
 function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -23,7 +24,6 @@ function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
   }, [ref]);
   return size;
 }
-import TenantSidebar, { TenantData } from './TenantSidebar';
 
 type TimeRange = '1h' | '6h' | '12h' | '24h' | '48h' | '7d';
 
@@ -32,12 +32,16 @@ interface DataPoint {
   value: number;
 }
 
-interface SeriesData {
+interface TenantSeries {
   namespace: string;
   data: DataPoint[];
 }
 
-// Generate a color palette for tenants
+interface ServiceSeries {
+  service: string;
+  data: DataPoint[];
+}
+
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
   '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#14b8a6',
@@ -82,33 +86,32 @@ function CustomTooltip({ active, payload, label, range }: TooltipProps) {
 }
 
 const RANGES: TimeRange[] = ['1h', '6h', '12h', '24h', '48h', '7d'];
-const POLL_INTERVAL = 60_000; // 60 seconds
+const POLL_INTERVAL = 60_000;
+const TOP_N = 20;
 
 export default function InstanceGraph() {
   const [range, setRange] = useState<TimeRange>('6h');
-  const [series, setSeries] = useState<SeriesData[]>([]);
-  const [tenants, setTenants] = useState<TenantData[]>([]);
-  const [soloedTenant, setSoloedTenant] = useState<string | null>(null);
+  const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [loadingCurrent, setLoadingCurrent] = useState(true);
+
+  const [soloedTenant, setSoloedTenant] = useState<string | null>(null);
+  const [drilldownSeries, setDrilldownSeries] = useState<ServiceSeries[]>([]);
+  const [drilldownColors, setDrilldownColors] = useState<Record<string, string>>({});
+  const [loadingDrilldown, setLoadingDrilldown] = useState(false);
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const { width: chartWidth, height: chartHeight } = useContainerSize(chartContainerRef);
 
-  // Fetch graph data
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
       const res = await fetch(`/api/instances/graph?range=${r}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const newSeries: SeriesData[] = data.series || [];
-
-      // Assign colors
+      const newSeries: TenantSeries[] = data.series || [];
       const colors: Record<string, string> = {};
-      newSeries.forEach((s, i) => {
-        colors[s.namespace] = getColor(i);
-      });
+      newSeries.forEach((s, i) => { colors[s.namespace] = getColor(i); });
       setTenantColors(colors);
       setSeries(newSeries);
       setError(null);
@@ -119,75 +122,118 @@ export default function InstanceGraph() {
     }
   }, []);
 
-  // Fetch current instance counts for sidebar
-  const fetchCurrent = useCallback(async () => {
+  const fetchDrilldown = useCallback(async (namespace: string, r: TimeRange) => {
+    setLoadingDrilldown(true);
     try {
-      const res = await fetch('/api/instances/current');
+      const res = await fetch(`/api/instances/drilldown?namespace=${encodeURIComponent(namespace)}&range=${r}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setTenants(data.tenants || []);
-    } catch {
-      // non-fatal
+      const ds: ServiceSeries[] = data.series || [];
+      const colors: Record<string, string> = {};
+      ds.forEach((s, i) => { colors[s.service] = getColor(i); });
+      setDrilldownSeries(ds);
+      setDrilldownColors(colors);
+    } catch (err) {
+      console.error('Drilldown failed:', err);
+      setDrilldownSeries([]);
     } finally {
-      setLoadingCurrent(false);
+      setLoadingDrilldown(false);
     }
   }, []);
 
+  // Fetch graph on range change
   useEffect(() => {
     setLoading(true);
     fetchGraph(range);
   }, [range, fetchGraph]);
 
-  useEffect(() => {
-    fetchCurrent();
-    const interval = setInterval(fetchCurrent, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchCurrent]);
-
+  // Poll graph every minute
   useEffect(() => {
     const interval = setInterval(() => fetchGraph(range), POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [range, fetchGraph]);
 
-  const handleToggle = (namespace: string) => {
+  // Fetch drilldown when tenant is selected or range changes
+  useEffect(() => {
+    if (soloedTenant) {
+      fetchDrilldown(soloedTenant, range);
+    } else {
+      setDrilldownSeries([]);
+      setDrilldownColors({});
+    }
+  }, [soloedTenant, range, fetchDrilldown]);
+
+  const handleTenantSelect = (namespace: string) => {
     setSoloedTenant((prev) => (prev === namespace ? null : namespace));
   };
 
-  // Build chart data: array of { time, [namespace]: count }
-  const visibleSeries = series.filter((s) => soloedTenant === null || s.namespace === soloedTenant);
+  // ---- Build chart data ----
+  const isInDrilldown = soloedTenant !== null;
 
-  // Collect all timestamps
+  type ActiveSeries = { key: string; data: DataPoint[] };
+  const activeSeries: ActiveSeries[] = isInDrilldown
+    ? drilldownSeries.map((s) => ({ key: s.service, data: s.data }))
+    : series.map((s) => ({ key: s.namespace, data: s.data }));
+
+  const activeColors = isInDrilldown ? drilldownColors : tenantColors;
+
   const allTimes = new Set<number>();
-  visibleSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
+  activeSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
   const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
   const chartData = sortedTimes.map((time) => {
     const point: Record<string, number | string> = { time };
-    visibleSeries.forEach((s) => {
+    activeSeries.forEach((s) => {
       const dp = s.data.find((d) => d.time === time);
-      point[s.namespace] = dp?.value ?? 0;
+      point[s.key] = dp?.value ?? 0;
     });
     return point;
   });
 
-  // Limit to top N visible tenants to avoid chart clutter
-  const TOP_N = 20;
-  const topSeries = visibleSeries
-    .map((s) => ({
-      namespace: s.namespace,
-      peak: Math.max(...s.data.map((d) => d.value)),
-    }))
+  const topKeys = activeSeries
+    .map((s) => ({ key: s.key, peak: s.data.length ? Math.max(...s.data.map((d) => d.value)) : 0 }))
     .sort((a, b) => b.peak - a.peak)
     .slice(0, TOP_N)
-    .map((s) => s.namespace);
+    .map((s) => s.key);
 
-  const renderSeries = visibleSeries.filter((s) => topSeries.includes(s.namespace));
+  const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
+
+  // ---- Build sidebar items ----
+  const latestValue = (data: DataPoint[]) =>
+    data.length > 0 ? data[data.length - 1].value : 0;
+
+  const sidebarItems: SidebarItem[] = isInDrilldown
+    ? drilldownSeries
+        .map((s) => ({ name: s.service, count: latestValue(s.data) }))
+        .sort((a, b) => b.count - a.count)
+    : series
+        .map((s) => ({ name: s.namespace, count: latestValue(s.data) }))
+        .sort((a, b) => b.count - a.count);
+
+  const sidebarLabel = isInDrilldown
+    ? `Services (${drilldownSeries.length})`
+    : `Tenants (${series.length})`;
+
+  const isLoading = loading || loadingDrilldown;
 
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
       {/* Graph Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-gray-100">Instance Graph</h2>
+        <div className="flex items-center gap-2">
+          {soloedTenant && (
+            <button
+              onClick={() => setSoloedTenant(null)}
+              className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
+              title="Back to all tenants"
+            >
+              ←
+            </button>
+          )}
+          <h2 className="text-sm font-semibold text-gray-100">
+            {soloedTenant ?? 'Instance Graph'}
+          </h2>
+        </div>
         <div className="flex gap-1">
           {RANGES.map((r) => (
             <button
@@ -209,9 +255,9 @@ export default function InstanceGraph() {
       <div className="flex flex-1 overflow-hidden">
         {/* Chart area */}
         <div ref={chartContainerRef} className="flex-1 relative min-w-0 min-h-0">
-          {loading && (
+          {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-gray-500 text-sm">Loading graph...</div>
+              <div className="text-gray-500 text-sm">Loading...</div>
             </div>
           )}
           {error && (
@@ -219,7 +265,7 @@ export default function InstanceGraph() {
               <div className="text-red-400 text-sm">Error: {error}</div>
             </div>
           )}
-          {!loading && chartData.length > 0 && chartWidth > 0 && chartHeight > 0 && (
+          {!isLoading && chartData.length > 0 && chartWidth > 0 && chartHeight > 0 && (
             <AreaChart
               width={chartWidth}
               height={chartHeight}
@@ -245,12 +291,12 @@ export default function InstanceGraph() {
               <Tooltip content={<CustomTooltip range={range} />} />
               {renderSeries.map((s) => (
                 <Area
-                  key={s.namespace}
+                  key={s.key}
                   type="monotone"
-                  dataKey={s.namespace}
+                  dataKey={s.key}
                   stackId="1"
-                  stroke={tenantColors[s.namespace] || '#6b7280'}
-                  fill={tenantColors[s.namespace] || '#6b7280'}
+                  stroke={activeColors[s.key] || '#6b7280'}
+                  fill={activeColors[s.key] || '#6b7280'}
                   fillOpacity={0.6}
                   strokeWidth={1.5}
                   dot={false}
@@ -259,31 +305,23 @@ export default function InstanceGraph() {
               ))}
             </AreaChart>
           )}
-          {!loading && chartData.length === 0 && !error && (
+          {!isLoading && chartData.length === 0 && !error && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-gray-600 text-sm">No data</div>
             </div>
           )}
         </div>
 
-        {/* Tenant Sidebar */}
+        {/* Sidebar */}
         <div className="w-48 flex-shrink-0 border-l border-gray-700 overflow-hidden flex flex-col">
-          {loadingCurrent ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-gray-600 text-xs">Loading...</div>
-            </div>
-          ) : (
-            <TenantSidebar
-              tenants={tenants}
-              hiddenTenants={
-                soloedTenant
-                  ? new Set(tenants.map((t) => t.namespace).filter((n) => n !== soloedTenant))
-                  : new Set()
-              }
-              tenantColors={tenantColors}
-              onToggle={handleToggle}
-            />
-          )}
+          <TenantSidebar
+            items={sidebarItems}
+            label={sidebarLabel}
+            colors={activeColors}
+            selected={soloedTenant}
+            onSelect={isInDrilldown ? undefined : handleTenantSelect}
+            onBack={isInDrilldown ? () => setSoloedTenant(null) : undefined}
+          />
         </div>
       </div>
     </div>
