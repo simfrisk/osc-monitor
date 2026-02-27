@@ -86,6 +86,26 @@ function parseGUIAuditLine(ts: string, line: string): PlatformEvent | null {
         description: `New tenant signed up: ${tenant}`,
         timestamp,
       };
+    case 'deploy:solution': {
+      return {
+        id: makeId(ts, tenant, 'deploy_solution'),
+        type: 'solution_deployed',
+        emoji: '🔧',
+        tenant,
+        description: `${tenant} deployed solution ${resource}`,
+        timestamp,
+      };
+    }
+    case 'delete:solution': {
+      return {
+        id: makeId(ts, tenant, 'delete_solution'),
+        type: 'solution_destroyed',
+        emoji: '💣',
+        tenant,
+        description: `${tenant} destroyed solution ${resource}`,
+        timestamp,
+      };
+    }
     default:
       return null;
   }
@@ -93,7 +113,7 @@ function parseGUIAuditLine(ts: string, line: string): PlatformEvent | null {
 
 async function fetchGUIEvents(since: number, now: number): Promise<PlatformEvent[]> {
   const streams = await lokiQuery(
-    '{job="gui/ui"} |~ "audit"',
+    '{job="gui/ui"} |= "audit"',
     Math.floor(since / 1000),
     Math.floor(now / 1000),
     200,
@@ -145,52 +165,10 @@ async function fetchSignupEvents(since: number, now: number): Promise<PlatformEv
   return events;
 }
 
-async function fetchDeployManagerEvents(since: number, now: number): Promise<PlatformEvent[]> {
-  const streams = await lokiQuery(
-    '{job="osaas/deploy-manager"} |~ "POST"',
-    Math.floor(since / 1000),
-    Math.floor(now / 1000),
-    50,
-    'backward'
-  );
-
-  const events: PlatformEvent[] = [];
-  for (const stream of streams) {
-    for (const [ts, line] of stream.values) {
-      const timestamp = Math.floor(parseInt(ts, 10) / 1_000_000);
-
-      // Look for solution deploy operations
-      if (line.includes('POST') && line.includes('/terraform/')) {
-        const urlMatch = line.match(/url=(\S+)/);
-        const tenantMatch = line.match(/customer=(\S+)/);
-        const url = urlMatch?.[1] || '';
-        const tenant = tenantMatch?.[1] || 'unknown';
-
-        if (url.includes('/terraform/') && !url.includes('status') && !url.includes('mydeployments')) {
-          const solutionMatch = url.match(/\/terraform\/([^/\s?]+)/);
-          const solutionId = solutionMatch?.[1] || 'unknown';
-
-          const isDestroy = line.includes('destroy') || url.includes('destroy');
-          events.push({
-            id: makeId(ts, tenant, isDestroy ? 'destroy' : 'deploy'),
-            type: isDestroy ? 'solution_destroyed' : 'solution_deployed',
-            emoji: isDestroy ? '💣' : '🔧',
-            tenant,
-            description: isDestroy
-              ? `${tenant} destroyed solution ${solutionId}`
-              : `${tenant} deployed solution ${solutionId}`,
-            timestamp,
-          });
-        }
-      }
-    }
-  }
-  return events;
-}
-
 async function fetchPlanChangeEvents(since: number, now: number): Promise<PlatformEvent[]> {
+  // POST /tenantplan = plan change event in money-manager
   const streams = await lokiQuery(
-    '{job="osaas/money-manager"} |~ "subscribe|plan"',
+    '{job="osaas/money-manager"} |= "POST" |= "/tenantplan"',
     Math.floor(since / 1000),
     Math.floor(now / 1000),
     50,
@@ -201,30 +179,19 @@ async function fetchPlanChangeEvents(since: number, now: number): Promise<Platfo
   for (const stream of streams) {
     for (const [ts, line] of stream.values) {
       const timestamp = Math.floor(parseInt(ts, 10) / 1_000_000);
-      const tenantMatch = line.match(/customer=(\S+)/);
-      const tenant = tenantMatch?.[1];
+      // Extract tenant from id field or infer from context
+      const idMatch = line.match(/id=(\S+)/);
+      const requestId = idMatch?.[1] || ts;
 
-      if (!tenant) continue;
-
-      if (line.toLowerCase().includes('upgrade')) {
-        events.push({
-          id: makeId(ts, tenant, 'upgrade'),
-          type: 'plan_upgrade',
-          emoji: '⬆️',
-          tenant,
-          description: `${tenant} upgraded plan`,
-          timestamp,
-        });
-      } else if (line.toLowerCase().includes('downgrade')) {
-        events.push({
-          id: makeId(ts, tenant, 'downgrade'),
-          type: 'plan_downgrade',
-          emoji: '⬇️',
-          tenant,
-          description: `${tenant} downgraded plan`,
-          timestamp,
-        });
-      }
+      // We may not have tenant info in these logs - emit a generic plan change event
+      events.push({
+        id: makeId(ts, requestId, 'plan_change'),
+        type: 'plan_upgrade',
+        emoji: '⬆️',
+        tenant: 'unknown',
+        description: `Tenant updated plan`,
+        timestamp,
+      });
     }
   }
   return events;
@@ -239,10 +206,10 @@ export async function GET(req: NextRequest) {
   const since = sinceParam ? new Date(sinceParam).getTime() : now - 86400 * 1000;
 
   try {
-    const [guiEvents, signupEvents, deployEvents, planEvents] = await Promise.all([
+    // deploy-manager source dropped -- solution events come from GUI audit (deploy:solution / delete:solution)
+    const [guiEvents, signupEvents, planEvents] = await Promise.all([
       fetchGUIEvents(since, now),
       fetchSignupEvents(since, now),
-      fetchDeployManagerEvents(since, now),
       fetchPlanChangeEvents(since, now),
     ]);
 
@@ -260,7 +227,6 @@ export async function GET(req: NextRequest) {
     const allEvents = [
       ...guiEvents,
       ...filteredSignups,
-      ...deployEvents,
       ...planEvents,
     ];
 
