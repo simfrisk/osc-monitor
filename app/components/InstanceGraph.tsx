@@ -88,7 +88,7 @@ export default function InstanceGraph() {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<SeriesData[]>([]);
   const [tenants, setTenants] = useState<TenantData[]>([]);
-  const [hiddenTenants, setHiddenTenants] = useState<Set<string>>(new Set());
+  const [soloedTenant, setSoloedTenant] = useState<string | null>(null);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,19 +150,11 @@ export default function InstanceGraph() {
   }, [range, fetchGraph]);
 
   const handleToggle = (namespace: string) => {
-    setHiddenTenants((prev) => {
-      const next = new Set(prev);
-      if (next.has(namespace)) {
-        next.delete(namespace);
-      } else {
-        next.add(namespace);
-      }
-      return next;
-    });
+    setSoloedTenant((prev) => (prev === namespace ? null : namespace));
   };
 
   // Build chart data: array of { time, [namespace]: count }
-  const visibleSeries = series.filter((s) => !hiddenTenants.has(s.namespace));
+  const visibleSeries = series.filter((s) => soloedTenant === null || s.namespace === soloedTenant);
 
   // Collect all timestamps
   const allTimes = new Set<number>();
@@ -283,7 +275,11 @@ export default function InstanceGraph() {
           ) : (
             <TenantSidebar
               tenants={tenants}
-              hiddenTenants={hiddenTenants}
+              hiddenTenants={
+                soloedTenant
+                  ? new Set(tenants.map((t) => t.namespace).filter((n) => n !== soloedTenant))
+                  : new Set()
+              }
               tenantColors={tenantColors}
               onToggle={handleToggle}
             />
