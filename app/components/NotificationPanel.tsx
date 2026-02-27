@@ -195,7 +195,11 @@ export default function NotificationPanel() {
           </label>
           {notifSupported && (
             notifPermission === 'granted' ? (
-              <span title="Mac notifications on" className="text-sm select-none">🔔</span>
+              <button
+                onClick={() => sendMacNotification([{ id: 'test', type: 'other', emoji: '🔔', tenant: 'test', description: 'Notifications are working!', timestamp: Date.now() }])}
+                title="Notifications on — click to test"
+                className="text-sm select-none hover:opacity-70 transition-opacity"
+              >🔔</button>
             ) : notifPermission === 'denied' ? (
               <span title="Notifications blocked in browser settings" className="text-sm select-none opacity-40">🔕</span>
             ) : (
