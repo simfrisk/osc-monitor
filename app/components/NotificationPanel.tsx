@@ -247,7 +247,7 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
             )
           )}
           {lastPoll && (
-            <span className="text-xs text-gray-600">
+            <span className="hidden md:inline text-xs text-gray-600">
               {lastPoll.toLocaleTimeString()}
             </span>
           )}

@@ -420,8 +420,8 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
           )}
         </div>
 
-        {/* Sidebar */}
-        <div className="w-48 flex-shrink-0 border-l border-gray-700 overflow-hidden flex flex-col">
+        {/* Sidebar - hidden on mobile */}
+        <div className="hidden md:flex flex-col w-48 flex-shrink-0 border-l border-gray-700 overflow-hidden">
           <TenantSidebar
             items={sidebarItems}
             label={sidebarLabel}
