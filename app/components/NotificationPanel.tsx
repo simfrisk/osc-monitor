@@ -24,43 +24,25 @@ export default function NotificationPanel() {
   const [mutedTenants, setMutedTenants] = useState<string[]>([]);
   const [hideInternal, setHideInternal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastPoll, setLastPoll] = useState<Date | null>(null);
   const lastEventTimeRef = useRef<string | null>(null);
+  const oldestEventTimeRef = useRef<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchEvents = useCallback(async (initial = false) => {
+  // Initial page load + set up oldest cursor
+  const fetchInitial = useCallback(async () => {
     try {
-      const since = initial
-        ? null
-        : (lastEventTimeRef.current ?? null);
-
-      const url = since
-        ? `/api/events?since=${encodeURIComponent(since)}`
-        : '/api/events';
-
-      const res = await fetch(url);
+      const res = await fetch('/api/events');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
       const data = await res.json();
       const newEvents: PlatformEvent[] = data.events || [];
-
-      if (newEvents.length > 0) {
-        if (initial) {
-          setEvents(newEvents);
-        } else {
-          setEvents((prev) => {
-            const existingIds = new Set(prev.map((e) => e.id));
-            const truly_new = newEvents.filter((e) => !existingIds.has(e.id));
-            if (truly_new.length === 0) return prev;
-            return [...truly_new, ...prev].slice(0, 500); // keep last 500
-          });
-        }
-        if (data.latestTimestamp) {
-          lastEventTimeRef.current = data.latestTimestamp;
-        }
-      }
-
-      setLastPoll(new Date());
+      setEvents(newEvents);
+      setHasMore(data.hasMore ?? false);
+      if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
+      if (data.oldestTimestamp) oldestEventTimeRef.current = data.oldestTimestamp;
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -69,26 +51,78 @@ export default function NotificationPanel() {
     }
   }, []);
 
-  // Initial load
-  useEffect(() => {
-    fetchEvents(true);
-  }, [fetchEvents]);
+  // Poll for new events (newest only)
+  const pollNew = useCallback(async () => {
+    if (!lastEventTimeRef.current) return;
+    try {
+      const res = await fetch(`/api/events?since=${encodeURIComponent(lastEventTimeRef.current)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const newEvents: PlatformEvent[] = data.events || [];
+      if (newEvents.length > 0) {
+        setEvents((prev) => {
+          const existingIds = new Set(prev.map((e) => e.id));
+          const truly_new = newEvents.filter((e) => !existingIds.has(e.id));
+          if (truly_new.length === 0) return prev;
+          return [...truly_new, ...prev];
+        });
+        if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
+      }
+      setLastPoll(new Date());
+    } catch {
+      // silent - don't break the UI on poll errors
+    }
+  }, []);
 
-  // Poll every 30s
+  // Load older events (scroll to bottom)
+  const fetchOlder = useCallback(async () => {
+    if (loadingOlder || !hasMore || !oldestEventTimeRef.current) return;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(`/api/events?before=${encodeURIComponent(oldestEventTimeRef.current)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const olderEvents: PlatformEvent[] = data.events || [];
+      if (olderEvents.length > 0) {
+        setEvents((prev) => {
+          const existingIds = new Set(prev.map((e) => e.id));
+          const truly_old = olderEvents.filter((e) => !existingIds.has(e.id));
+          return [...prev, ...truly_old];
+        });
+        if (data.oldestTimestamp) oldestEventTimeRef.current = data.oldestTimestamp;
+      }
+      setHasMore(data.hasMore ?? false);
+    } catch (err) {
+      console.error('Failed to load older events:', err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [loadingOlder, hasMore]);
+
+  useEffect(() => { fetchInitial(); }, [fetchInitial]);
+
   useEffect(() => {
-    const interval = setInterval(() => fetchEvents(false), POLL_INTERVAL);
+    const interval = setInterval(pollNew, POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [fetchEvents]);
+  }, [pollNew]);
 
-  const handleMute = (tenant: string) => {
-    setMutedTenants((prev) =>
-      prev.includes(tenant) ? prev : [...prev, tenant]
+  // IntersectionObserver on sentinel div at bottom of list
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) fetchOlder(); },
+      { threshold: 0.1 }
     );
-  };
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [fetchOlder]);
 
-  const handleUnmute = (tenant: string) => {
+  const handleMute = (tenant: string) =>
+    setMutedTenants((prev) => (prev.includes(tenant) ? prev : [...prev, tenant]));
+
+  const handleUnmute = (tenant: string) =>
     setMutedTenants((prev) => prev.filter((t) => t !== tenant));
-  };
 
   const filteredEvents = events.filter((e) => {
     if (mutedTenants.includes(e.tenant)) return false;
@@ -147,13 +181,23 @@ export default function NotificationPanel() {
 
         {!loading && filteredEvents.length === 0 && !error && (
           <div className="flex items-center justify-center h-32">
-            <div className="text-gray-600 text-sm">No events in last 24h</div>
+            <div className="text-gray-600 text-sm">No events in the last 30 days</div>
           </div>
         )}
 
         {filteredEvents.map((event) => (
           <EventItem key={event.id} event={event} onMute={handleMute} />
         ))}
+
+        {/* Scroll sentinel - triggers older fetch when visible */}
+        <div ref={sentinelRef} className="px-4 py-3 flex items-center justify-center">
+          {loadingOlder && (
+            <span className="text-xs text-gray-500">Loading older events...</span>
+          )}
+          {!loadingOlder && !hasMore && events.length > 0 && (
+            <span className="text-xs text-gray-700">30-day history loaded</span>
+          )}
+        </div>
       </div>
     </div>
   );

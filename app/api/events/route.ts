@@ -197,62 +197,92 @@ async function fetchPlanChangeEvents(since: number, now: number): Promise<Platfo
   return events;
 }
 
+const CHUNK_MS = 3 * 86400 * 1000;      // 3-day chunks per page load
+const MAX_HISTORY_MS = 30 * 86400 * 1000; // 30-day total lookback
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const sinceParam = searchParams.get('since');
+  const beforeParam = searchParams.get('before');
   const now = Date.now();
 
-  // Default: last 24h if no since param
-  const since = sinceParam ? new Date(sinceParam).getTime() : now - 86400 * 1000;
+  // Live-poll mode: only fetch events newer than `since`
+  if (sinceParam) {
+    const since = new Date(sinceParam).getTime();
+    try {
+      const [guiEvents, signupEvents, planEvents] = await Promise.all([
+        fetchGUIEvents(since, now),
+        fetchSignupEvents(since, now),
+        fetchPlanChangeEvents(since, now),
+      ]);
+      const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents);
+      const latestTimestamp =
+        allEvents.length > 0
+          ? new Date(allEvents[0].timestamp).toISOString()
+          : sinceParam;
+      return NextResponse.json({ events: allEvents, count: allEvents.length, latestTimestamp, hasMore: false });
+    } catch (err) {
+      console.error('Events fetch error:', err);
+      return NextResponse.json({ events: [], count: 0, error: String(err) }, { status: 500 });
+    }
+  }
+
+  // Paginated mode: fetch one 3-day chunk ending at `before` (default: now)
+  const before = beforeParam ? new Date(beforeParam).getTime() : now;
+  const since = before - CHUNK_MS;
+  const oldest = now - MAX_HISTORY_MS;
+  const hasMore = since > oldest;
 
   try {
-    // deploy-manager source dropped -- solution events come from GUI audit (deploy:solution / delete:solution)
     const [guiEvents, signupEvents, planEvents] = await Promise.all([
-      fetchGUIEvents(since, now),
-      fetchSignupEvents(since, now),
-      fetchPlanChangeEvents(since, now),
+      fetchGUIEvents(since, before),
+      fetchSignupEvents(since, before),
+      fetchPlanChangeEvents(since, before),
     ]);
 
-    // Merge and deduplicate (GUI audit covers instance create/delete and tenant signup)
-    // Signup events from magic-link may overlap with GUI audit create:tenant
-    const guiSignups = new Set(
-      guiEvents.filter((e) => e.type === 'tenant_signup').map((e) => e.tenant)
-    );
-
-    const filteredSignups = signupEvents.filter((e) => {
-      // Only include email-based signups that aren't already in GUI events as a tenant name
-      return !guiSignups.has(e.tenant);
-    });
-
-    const allEvents = [
-      ...guiEvents,
-      ...filteredSignups,
-      ...planEvents,
-    ];
-
-    // Sort by timestamp descending (newest first)
-    allEvents.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Deduplicate by id
-    const seen = new Set<string>();
-    const uniqueEvents = allEvents.filter((e) => {
-      if (seen.has(e.id)) return false;
-      seen.add(e.id);
-      return true;
-    });
+    const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents);
 
     const latestTimestamp =
-      uniqueEvents.length > 0
-        ? new Date(uniqueEvents[0].timestamp).toISOString()
-        : new Date().toISOString();
+      allEvents.length > 0
+        ? new Date(allEvents[0].timestamp).toISOString()
+        : new Date(before).toISOString();
+
+    // Cursor for next (older) page: oldest event time, or chunk start if no events
+    const oldestTimestamp =
+      allEvents.length > 0
+        ? new Date(allEvents[allEvents.length - 1].timestamp).toISOString()
+        : new Date(since).toISOString();
 
     return NextResponse.json({
-      events: uniqueEvents,
-      count: uniqueEvents.length,
+      events: allEvents,
+      count: allEvents.length,
       latestTimestamp,
+      oldestTimestamp,
+      hasMore,
     });
   } catch (err) {
     console.error('Events fetch error:', err);
     return NextResponse.json({ events: [], count: 0, error: String(err) }, { status: 500 });
   }
+}
+
+function mergeAndDedup(
+  guiEvents: PlatformEvent[],
+  signupEvents: PlatformEvent[],
+  planEvents: PlatformEvent[]
+): PlatformEvent[] {
+  const guiSignups = new Set(
+    guiEvents.filter((e) => e.type === 'tenant_signup').map((e) => e.tenant)
+  );
+  const filteredSignups = signupEvents.filter((e) => !guiSignups.has(e.tenant));
+
+  const all = [...guiEvents, ...filteredSignups, ...planEvents];
+  all.sort((a, b) => b.timestamp - a.timestamp);
+
+  const seen = new Set<string>();
+  return all.filter((e) => {
+    if (seen.has(e.id)) return false;
+    seen.add(e.id);
+    return true;
+  });
 }
