@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AreaChart,
   Area,
@@ -8,9 +8,21 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  Legend,
 } from 'recharts';
+
+function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) setSize({ width, height });
+    });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [ref]);
+  return size;
+}
 import TenantSidebar, { TenantData } from './TenantSidebar';
 
 type TimeRange = '1h' | '6h' | '12h' | '24h' | '48h' | '7d';
@@ -81,6 +93,8 @@ export default function InstanceGraph() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingCurrent, setLoadingCurrent] = useState(true);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const { width: chartWidth, height: chartHeight } = useContainerSize(chartContainerRef);
 
   // Fetch graph data
   const fetchGraph = useCallback(async (r: TimeRange) => {
@@ -202,7 +216,7 @@ export default function InstanceGraph() {
       {/* Main content: chart + sidebar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chart area */}
-        <div className="flex-1 relative">
+        <div ref={chartContainerRef} className="flex-1 relative min-w-0 min-h-0">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-gray-500 text-sm">Loading graph...</div>
@@ -213,45 +227,45 @@ export default function InstanceGraph() {
               <div className="text-red-400 text-sm">Error: {error}</div>
             </div>
           )}
-          {!loading && chartData.length > 0 && (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={chartData}
-                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis
-                  dataKey="time"
-                  type="number"
-                  domain={['dataMin', 'dataMax']}
-                  tickFormatter={(v) => formatTime(v as number, range)}
-                  tick={{ fill: '#6b7280', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#374151' }}
-                  minTickGap={40}
+          {!loading && chartData.length > 0 && chartWidth > 0 && chartHeight > 0 && (
+            <AreaChart
+              width={chartWidth}
+              height={chartHeight}
+              data={chartData}
+              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis
+                dataKey="time"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                tickFormatter={(v) => formatTime(v as number, range)}
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickLine={false}
+                axisLine={{ stroke: '#374151' }}
+                minTickGap={40}
+              />
+              <YAxis
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickLine={false}
+                axisLine={{ stroke: '#374151' }}
+              />
+              <Tooltip content={<CustomTooltip range={range} />} />
+              {renderSeries.map((s) => (
+                <Area
+                  key={s.namespace}
+                  type="monotone"
+                  dataKey={s.namespace}
+                  stackId="1"
+                  stroke={tenantColors[s.namespace] || '#6b7280'}
+                  fill={tenantColors[s.namespace] || '#6b7280'}
+                  fillOpacity={0.6}
+                  strokeWidth={1.5}
+                  dot={false}
+                  isAnimationActive={false}
                 />
-                <YAxis
-                  tick={{ fill: '#6b7280', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#374151' }}
-                />
-                <Tooltip content={<CustomTooltip range={range} />} />
-                {renderSeries.map((s) => (
-                  <Area
-                    key={s.namespace}
-                    type="monotone"
-                    dataKey={s.namespace}
-                    stackId="1"
-                    stroke={tenantColors[s.namespace] || '#6b7280'}
-                    fill={tenantColors[s.namespace] || '#6b7280'}
-                    fillOpacity={0.6}
-                    strokeWidth={1.5}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+              ))}
+            </AreaChart>
           )}
           {!loading && chartData.length === 0 && !error && (
             <div className="absolute inset-0 flex items-center justify-center">
