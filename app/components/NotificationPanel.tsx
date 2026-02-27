@@ -21,6 +21,25 @@ const POLL_INTERVAL = 30_000; // 30 seconds
 
 type NotifPermission = 'default' | 'granted' | 'denied';
 
+function playPing() {
+  if (typeof window === 'undefined') return;
+  try {
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {
+    // audio not available - ignore
+  }
+}
+
 function sendMacNotification(events: PlatformEvent[]) {
   if (typeof window === 'undefined' || Notification.permission !== 'granted') return;
   if (events.length === 1) {
@@ -41,6 +60,7 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [mutedTenants, setMutedTenants] = useState<string[]>([]);
   const [hideInternal, setHideInternal] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -103,19 +123,22 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
           return [...trulyNew, ...prev];
         });
         if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
-        // Fire macOS notification for genuinely new events (skip muted/internal)
+        // Fire macOS notification + audio ping for genuinely new events (skip muted/internal)
         setTimeout(() => {
           const notifiable = trulyNew.filter(
             (e) => !mutedTenants.includes(e.tenant) && !(hideInternal && INTERNAL_TENANTS.has(e.tenant))
           );
-          if (notifiable.length > 0) sendMacNotification(notifiable);
+          if (notifiable.length > 0) {
+            sendMacNotification(notifiable);
+            if (!isMuted) playPing();
+          }
         }, 0);
       }
       setLastPoll(new Date());
     } catch {
       // silent - don't break the UI on poll errors
     }
-  }, [mutedTenants, hideInternal]);
+  }, [mutedTenants, hideInternal, isMuted]);
 
   // Load older events (scroll to bottom)
   const fetchOlder = useCallback(async () => {
@@ -197,6 +220,13 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
             />
             Hide internal
           </label>
+          <button
+            onClick={() => setIsMuted((prev) => !prev)}
+            title={isMuted ? 'Sound off - click to enable ping' : 'Sound on - click to mute'}
+            className="text-sm select-none hover:opacity-70 transition-opacity"
+          >
+            {isMuted ? '🔇' : '🔊'}
+          </button>
           {notifSupported && (
             notifPermission === 'granted' ? (
               <button
