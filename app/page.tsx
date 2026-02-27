@@ -1,5 +1,8 @@
-import NotificationPanel from './components/NotificationPanel';
-import InstanceGraph from './components/InstanceGraph';
+'use client';
+import dynamic from 'next/dynamic';
+
+const NotificationPanel = dynamic(() => import('./components/NotificationPanel'), { ssr: false });
+const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr: false });
 
 export default function Home() {
   return (
