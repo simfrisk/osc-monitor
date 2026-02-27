@@ -35,7 +35,7 @@ function parseGUIAuditLine(ts: string, line: string): PlatformEvent | null {
 
   const tenant = customerMatch[1];
   const action = actionMatch[1];
-  const resource = actionMatch[2];
+  const resource = actionMatch[2].replace(/"+$/, '');
   const timestamp = Math.floor(parseInt(ts, 10) / 1_000_000); // nanoseconds -> ms
 
   switch (action) {
