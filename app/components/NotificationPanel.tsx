@@ -19,6 +19,20 @@ const INTERNAL_TENANTS = new Set([
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 
+type NotifPermission = 'default' | 'granted' | 'denied';
+
+function sendMacNotification(events: PlatformEvent[]) {
+  if (typeof window === 'undefined' || Notification.permission !== 'granted') return;
+  if (events.length === 1) {
+    new Notification(`${events[0].emoji} OSC Monitor`, { body: events[0].description, silent: false });
+  } else {
+    new Notification(`OSC Monitor — ${events.length} new events`, {
+      body: events.slice(0, 3).map((e) => `${e.emoji} ${e.description}`).join('\n'),
+      silent: false,
+    });
+  }
+}
+
 export default function NotificationPanel() {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [mutedTenants, setMutedTenants] = useState<string[]>([]);
@@ -28,9 +42,26 @@ export default function NotificationPanel() {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastPoll, setLastPoll] = useState<Date | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotifPermission>('default');
   const lastEventTimeRef = useRef<string | null>(null);
   const oldestEventTimeRef = useRef<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const [notifSupported, setNotifSupported] = useState(false);
+
+  // Sync notification permission state on mount (client-only to avoid hydration mismatch)
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotifSupported(true);
+      setNotifPermission(Notification.permission as NotifPermission);
+    }
+  }, []);
+
+  const requestNotifications = async () => {
+    if (!('Notification' in window)) return;
+    const result = await Notification.requestPermission();
+    setNotifPermission(result as NotifPermission);
+  };
 
   // Initial page load + set up oldest cursor
   const fetchInitial = useCallback(async () => {
@@ -60,19 +91,27 @@ export default function NotificationPanel() {
       const data = await res.json();
       const newEvents: PlatformEvent[] = data.events || [];
       if (newEvents.length > 0) {
+        let trulyNew: PlatformEvent[] = [];
         setEvents((prev) => {
           const existingIds = new Set(prev.map((e) => e.id));
-          const truly_new = newEvents.filter((e) => !existingIds.has(e.id));
-          if (truly_new.length === 0) return prev;
-          return [...truly_new, ...prev];
+          trulyNew = newEvents.filter((e) => !existingIds.has(e.id));
+          if (trulyNew.length === 0) return prev;
+          return [...trulyNew, ...prev];
         });
         if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
+        // Fire macOS notification for genuinely new events (skip muted/internal)
+        setTimeout(() => {
+          const notifiable = trulyNew.filter(
+            (e) => !mutedTenants.includes(e.tenant) && !(hideInternal && INTERNAL_TENANTS.has(e.tenant))
+          );
+          if (notifiable.length > 0) sendMacNotification(notifiable);
+        }, 0);
       }
       setLastPoll(new Date());
     } catch {
       // silent - don't break the UI on poll errors
     }
-  }, []);
+  }, [mutedTenants, hideInternal]);
 
   // Load older events (scroll to bottom)
   const fetchOlder = useCallback(async () => {
@@ -154,6 +193,21 @@ export default function NotificationPanel() {
             />
             Hide internal
           </label>
+          {notifSupported && (
+            notifPermission === 'granted' ? (
+              <span title="Mac notifications on" className="text-sm select-none">🔔</span>
+            ) : notifPermission === 'denied' ? (
+              <span title="Notifications blocked in browser settings" className="text-sm select-none opacity-40">🔕</span>
+            ) : (
+              <button
+                onClick={requestNotifications}
+                title="Enable mac notifications"
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                🔔 Enable alerts
+              </button>
+            )
+          )}
           {lastPoll && (
             <span className="text-xs text-gray-600">
               {lastPoll.toLocaleTimeString()}
