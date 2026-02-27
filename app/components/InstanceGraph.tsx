@@ -8,6 +8,8 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  usePlotArea,
+  useActiveTooltipCoordinate,
 } from 'recharts';
 import TenantSidebar, { SidebarItem } from './TenantSidebar';
 
@@ -63,24 +65,62 @@ function formatTime(timestamp: number, range: TimeRange): string {
 
 interface TooltipProps {
   active?: boolean;
-  payload?: { name: string; value: number; color: string }[];
-  label?: number;
+  payload?: readonly { name: string; value: number; color: string }[];
+  label?: string | number;
   range: TimeRange;
+  yMax: number;
+  stackOrder: string[];
 }
 
-function CustomTooltip({ active, payload, label, range }: TooltipProps) {
+function CustomTooltip({ active, payload, label, range, yMax, stackOrder }: TooltipProps) {
+  // Use recharts' own hooks - works because recharts calls this via React.createElement
+  const plotArea = usePlotArea();
+  const coordinate = useActiveTooltipCoordinate();
+
   if (!active || !payload || !label) return null;
   const items = payload.filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
+
+  // Determine which stacked band the cursor is in using recharts' exact plot area
+  let hoveredKey: string | null = null;
+  if (coordinate && plotArea && plotArea.height > 0 && yMax > 0) {
+    const plotRelY = coordinate.y - plotArea.y;
+    const t = Math.max(0, Math.min(1, plotRelY / plotArea.height));
+    const valueAtCursor = (1 - t) * yMax;
+    const payloadMap = new Map(payload.map((p) => [p.name, p.value]));
+    let cumulative = 0;
+    for (const key of stackOrder) {
+      cumulative += payloadMap.get(key) || 0;
+      if (valueAtCursor <= cumulative) {
+        hoveredKey = key;
+        break;
+      }
+    }
+  }
+
+  const hoveredItem = hoveredKey ? items.find((p) => p.name === hoveredKey) : null;
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded p-2 text-xs shadow-xl max-h-48 overflow-y-auto">
-      <div className="text-gray-400 mb-1">{formatTime(label, range)}</div>
-      {items.map((item) => (
-        <div key={item.name} className="flex items-center gap-2 py-0.5">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-          <span className="text-gray-300">{item.name}</span>
-          <span className="text-white font-medium ml-auto pl-4">{item.value}</span>
+    <div className="bg-gray-900 border border-gray-700 rounded p-2 text-xs shadow-xl max-h-64 overflow-y-auto min-w-[160px]">
+      <div className="text-gray-400 mb-1">{typeof label === 'number' ? formatTime(label, range) : label}</div>
+      {hoveredItem && (
+        <div className="flex items-center gap-2 py-1 mb-1 border-b border-gray-700">
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hoveredItem.color }} />
+          <span className="text-white font-bold flex-1">{hoveredItem.name}</span>
+          <span className="text-white font-bold pl-2">{hoveredItem.value}</span>
         </div>
-      ))}
+      )}
+      {items.map((item) => {
+        const isHovered = item.name === hoveredKey;
+        return (
+          <div
+            key={item.name}
+            className={`flex items-center gap-2 py-0.5 ${isHovered ? 'opacity-100' : 'opacity-60'}`}
+          >
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+            <span className="text-gray-300 flex-1">{item.name}</span>
+            <span className="text-white font-medium ml-auto pl-4">{item.value}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -89,7 +129,11 @@ const RANGES: TimeRange[] = ['1h', '6h', '12h', '24h', '48h', '7d'];
 const POLL_INTERVAL = 60_000;
 const TOP_N = 20;
 
-export default function InstanceGraph() {
+interface InstanceGraphProps {
+  focusTenant?: string | null;
+}
+
+export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
@@ -163,6 +207,13 @@ export default function InstanceGraph() {
     }
   }, [soloedTenant, range, fetchDrilldown]);
 
+  // Navigate to a tenant from an external source (e.g. Platform Events click)
+  useEffect(() => {
+    if (focusTenant != null) {
+      setSoloedTenant(focusTenant);
+    }
+  }, [focusTenant]);
+
   const handleTenantSelect = (namespace: string) => {
     setSoloedTenant((prev) => (prev === namespace ? null : namespace));
   };
@@ -233,6 +284,17 @@ export default function InstanceGraph() {
 
   const isLoading = loading || loadingDrilldown;
 
+  // Compute max stacked total for explicit Y domain (needed for cursor-to-value mapping)
+  const yMax = Math.max(
+    1,
+    ...chartData.map((point) =>
+      renderSeries.reduce((sum, s) => sum + (Number(point[s.key]) || 0), 0)
+    )
+  );
+
+  // Stack order (bottom to top) matches the render order of Area components
+  const stackOrder = renderSeries.map((s) => s.key);
+
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
       {/* Graph Header */}
@@ -301,11 +363,21 @@ export default function InstanceGraph() {
                 minTickGap={40}
               />
               <YAxis
+                domain={[0, yMax]}
                 tick={{ fill: '#6b7280', fontSize: 10 }}
                 tickLine={false}
                 axisLine={{ stroke: '#374151' }}
               />
-              <Tooltip content={<CustomTooltip range={range} />} />
+              <Tooltip
+                content={(props) => (
+                  <CustomTooltip
+                    {...props}
+                    range={range}
+                    yMax={yMax}
+                    stackOrder={stackOrder}
+                  />
+                )}
+              />
               {renderSeries.map((s) => (
                 <Area
                   key={s.key}

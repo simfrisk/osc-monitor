@@ -18,17 +18,30 @@ function timeAgo(ts: number): string {
 interface EventItemProps {
   event: PlatformEvent;
   onMute: (tenant: string) => void;
+  onTenantClick?: (tenant: string) => void;
 }
 
-export default function EventItem({ event, onMute }: EventItemProps) {
+export default function EventItem({ event, onMute, onTenantClick }: EventItemProps) {
   const [hovered, setHovered] = useState(false);
+
+  const tenantEl = onTenantClick ? (
+    <button
+      className="font-semibold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer"
+      onClick={(e) => { e.stopPropagation(); onTenantClick(event.tenant); }}
+      title={`View ${event.tenant} in Instance Graph`}
+    >
+      {event.tenant}
+    </button>
+  ) : (
+    <span className="font-semibold text-blue-400">{event.tenant}</span>
+  );
 
   const parts = event.description.split(event.tenant);
   const description =
     parts.length > 1 ? (
       <>
         {parts[0]}
-        <span className="font-semibold text-blue-400">{event.tenant}</span>
+        {tenantEl}
         {parts.slice(1).join(event.tenant)}
       </>
     ) : (

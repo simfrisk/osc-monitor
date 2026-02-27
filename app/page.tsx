@@ -1,10 +1,13 @@
 'use client';
 import dynamic from 'next/dynamic';
+import { useState } from 'react';
 
 const NotificationPanel = dynamic(() => import('./components/NotificationPanel'), { ssr: false });
 const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr: false });
 
 export default function Home() {
+  const [focusTenant, setFocusTenant] = useState<string | null>(null);
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
       {/* Top bar */}
@@ -24,12 +27,12 @@ export default function Home() {
       <main className="flex flex-1 overflow-hidden gap-4 p-4">
         {/* Left: Notification panel (40%) */}
         <div className="w-2/5 flex-shrink-0 flex flex-col overflow-hidden">
-          <NotificationPanel />
+          <NotificationPanel onTenantClick={setFocusTenant} />
         </div>
 
         {/* Right: Instance graph (60%) */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <InstanceGraph />
+          <InstanceGraph focusTenant={focusTenant} />
         </div>
       </main>
     </div>

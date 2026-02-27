@@ -33,7 +33,11 @@ function sendMacNotification(events: PlatformEvent[]) {
   }
 }
 
-export default function NotificationPanel() {
+interface NotificationPanelProps {
+  onTenantClick?: (tenant: string) => void;
+}
+
+export default function NotificationPanel({ onTenantClick }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [mutedTenants, setMutedTenants] = useState<string[]>([]);
   const [hideInternal, setHideInternal] = useState(false);
@@ -244,7 +248,7 @@ export default function NotificationPanel() {
         )}
 
         {filteredEvents.map((event) => (
-          <EventItem key={event.id} event={event} onMute={handleMute} />
+          <EventItem key={event.id} event={event} onMute={handleMute} onTenantClick={onTenantClick} />
         ))}
 
         {/* Scroll sentinel - triggers older fetch when visible */}
