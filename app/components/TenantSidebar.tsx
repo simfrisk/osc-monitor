@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 export interface SidebarItem {
   name: string;
   count: number;
@@ -24,6 +26,12 @@ export default function TenantSidebar({
   onSelect,
   onBack,
 }: TenantSidebarProps) {
+  const [search, setSearch] = useState('');
+
+  const filteredItems = search.trim()
+    ? items.filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
+    : items;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-3 py-2 border-b border-gray-700 flex items-center gap-1.5">
@@ -40,8 +48,17 @@ export default function TenantSidebar({
           {label ?? `Tenants (${items.length})`}
         </h3>
       </div>
+      <div className="px-2 py-1.5 border-b border-gray-700">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search..."
+          className="w-full bg-gray-800 text-xs text-gray-200 placeholder-gray-500 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-600 border border-gray-700"
+        />
+      </div>
       <div className="flex-1 overflow-y-auto">
-        {items.map((item) => {
+        {filteredItems.map((item) => {
           const color = colors[item.name] || '#6b7280';
           const isDimmed = dimmed.has(item.name);
           const isSelected = selected === item.name;
