@@ -198,6 +198,23 @@ export default function InstanceGraph() {
 
   const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
 
+  // ---- Per-series deltas: detect which tenant changed at each time step ----
+  // deltaMap[seriesKey][timeIndex] = delta (positive = created, negative = removed)
+  const deltaMap = new Map<string, Map<number, number>>();
+  activeSeries.forEach((s) => {
+    const map = new Map<number, number>();
+    const lookup = new Map<number, number>();
+    s.data.forEach((d) => lookup.set(d.time, d.value));
+    sortedTimes.forEach((time, i) => {
+      if (i === 0) return;
+      const curr = lookup.get(time) ?? 0;
+      const prev = lookup.get(sortedTimes[i - 1]) ?? 0;
+      const d = curr - prev;
+      if (d !== 0) map.set(i, d);
+    });
+    if (map.size > 0) deltaMap.set(s.key, map);
+  });
+
   // ---- Build sidebar items ----
   const latestValue = (data: DataPoint[]) =>
     data.length > 0 ? data[data.length - 1].value : 0;
@@ -299,7 +316,26 @@ export default function InstanceGraph() {
                   fill={activeColors[s.key] || '#6b7280'}
                   fillOpacity={0.6}
                   strokeWidth={1.5}
-                  dot={false}
+                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                    const { cx, cy, index } = props;
+                    if (cx == null || cy == null || index == null) return <g key={`empty-${s.key}`} />;
+                    const seriesDeltas = deltaMap.get(s.key);
+                    if (!seriesDeltas) return <g key={`none-${s.key}-${index}`} />;
+                    const delta = seriesDeltas.get(index);
+                    if (!delta) return <g key={`zero-${s.key}-${index}`} />;
+                    return (
+                      <circle
+                        key={`dot-${s.key}-${index}`}
+                        cx={cx}
+                        cy={cy}
+                        r={Math.min(6, Math.max(3, Math.abs(delta) + 2))}
+                        fill={delta > 0 ? '#10b981' : '#ef4444'}
+                        stroke="#111827"
+                        strokeWidth={1.5}
+                      />
+                    );
+                  }}
+                  activeDot={false}
                   isAnimationActive={false}
                 />
               ))}
