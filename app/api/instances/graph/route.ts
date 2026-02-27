@@ -12,27 +12,41 @@ export async function GET(req: NextRequest) {
   const start = now - rangeSecs;
   const step = stepForRange(rangeSecs);
 
+  // Query per-pod info. Pods are named "${tenant}-${service}-${instance}-..."
+  // so we extract the tenant as the first dash-separated segment in JS,
+  // since label_replace is not available via the Grafana proxy.
   const results = await promQueryRange(
-    'sum by (namespace) (kube_pod_info{created_by_kind="ReplicaSet"})',
+    'count by (pod)(kube_pod_info{created_by_kind="ReplicaSet"})',
     start,
     now,
     step
   );
 
-  // Build time-series data: { namespace -> { timestamp -> count } }
-  // Return as array of { namespace, data: [{time, value}] }
-  const series = results.map((r) => ({
-    namespace: r.metric.namespace || 'unknown',
-    data: (r.values || []).map(([ts, val]) => ({
-      time: ts * 1000, // convert to ms for JS Date
-      value: parseInt(val, 10),
-    })),
-  }));
+  // Aggregate time series by tenant (first segment of pod name)
+  const tenantMap = new Map<string, Map<number, number>>();
 
-  // Filter out namespaces with 0 instances throughout (all zeros)
-  const nonZero = series.filter((s) =>
-    s.data.some((d) => d.value > 0)
-  );
+  for (const r of results) {
+    const podName = r.metric.pod || '';
+    const tenant = podName.split('-')[0];
+    if (!tenant) continue;
 
-  return NextResponse.json({ series: nonZero, range, step });
+    if (!tenantMap.has(tenant)) tenantMap.set(tenant, new Map());
+    const tsMap = tenantMap.get(tenant)!;
+
+    for (const [ts, val] of (r.values || [])) {
+      const msTs = (ts as number) * 1000;
+      tsMap.set(msTs, (tsMap.get(msTs) || 0) + parseInt(val as string, 10));
+    }
+  }
+
+  const series = Array.from(tenantMap.entries())
+    .map(([tenant, tsMap]) => ({
+      namespace: tenant,
+      data: Array.from(tsMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([time, value]) => ({ time, value })),
+    }))
+    .filter((s) => s.data.some((d) => d.value > 0));
+
+  return NextResponse.json({ series, range, step });
 }
