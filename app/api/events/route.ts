@@ -165,6 +165,143 @@ async function fetchSignupEvents(since: number, now: number): Promise<PlatformEv
   return events;
 }
 
+const MCP_WRITE_ACTIONS = new Set([
+  'create-database',
+  'create-service-instance',
+  'delete-service-instance',
+  'restart-service-instance',
+  'create-my-app',
+  'delete-my-app',
+  'restart-my-app',
+  'deploy-solution',
+  'remove-deployed-solution',
+]);
+
+function parseMCPAuditLine(ts: string, line: string): PlatformEvent | null {
+  // Format: level=info ... msg="{JSON with escaped quotes}"
+  const msgIdx = line.indexOf('msg="');
+  if (msgIdx === -1) return null;
+
+  try {
+    const raw = line.slice(msgIdx + 5, -1); // strip 'msg="' and trailing '"'
+    const jsonStr = raw.replace(/\\"/g, '"');
+    const data = JSON.parse(jsonStr);
+
+    if (!data.action || !MCP_WRITE_ACTIONS.has(data.action) || !data.success) return null;
+
+    const tenant = data.tenantId || 'unknown';
+    const resource = data.resource || '';
+    const timestamp = Math.floor(parseInt(ts, 10) / 1_000_000);
+
+    switch (data.action) {
+      case 'create-database':
+        return {
+          id: makeId(ts, tenant, 'mcp_create_db'),
+          type: 'instance_created',
+          emoji: '🚀',
+          tenant,
+          description: `${tenant} created database ${resource}${data.type ? ` (${data.type})` : ''} 🤖`,
+          timestamp,
+        };
+      case 'create-service-instance':
+        return {
+          id: makeId(ts, tenant, 'mcp_create_instance'),
+          type: 'instance_created',
+          emoji: '🚀',
+          tenant,
+          description: `${tenant} created instance ${resource} 🤖`,
+          timestamp,
+        };
+      case 'delete-service-instance':
+        return {
+          id: makeId(ts, tenant, 'mcp_delete_instance'),
+          type: 'instance_removed',
+          emoji: '🗑️',
+          tenant,
+          description: `${tenant} removed instance ${resource} 🤖`,
+          timestamp,
+        };
+      case 'restart-service-instance':
+        return {
+          id: makeId(ts, tenant, 'mcp_restart_instance'),
+          type: 'instance_restarted',
+          emoji: '🔄',
+          tenant,
+          description: `${tenant} restarted instance ${resource} 🤖`,
+          timestamp,
+        };
+      case 'create-my-app':
+        return {
+          id: makeId(ts, tenant, 'mcp_create_app'),
+          type: 'instance_created',
+          emoji: '🚀',
+          tenant,
+          description: `${tenant} created app ${resource} 🤖`,
+          timestamp,
+        };
+      case 'delete-my-app':
+        return {
+          id: makeId(ts, tenant, 'mcp_delete_app'),
+          type: 'instance_removed',
+          emoji: '🗑️',
+          tenant,
+          description: `${tenant} deleted app ${resource} 🤖`,
+          timestamp,
+        };
+      case 'restart-my-app':
+        return {
+          id: makeId(ts, tenant, 'mcp_restart_app'),
+          type: 'instance_restarted',
+          emoji: '🔄',
+          tenant,
+          description: `${tenant} restarted app ${resource} 🤖`,
+          timestamp,
+        };
+      case 'deploy-solution':
+        return {
+          id: makeId(ts, tenant, 'mcp_deploy_solution'),
+          type: 'solution_deployed',
+          emoji: '🔧',
+          tenant,
+          description: `${tenant} deployed solution ${resource} 🤖`,
+          timestamp,
+        };
+      case 'remove-deployed-solution':
+        return {
+          id: makeId(ts, tenant, 'mcp_remove_solution'),
+          type: 'solution_destroyed',
+          emoji: '💣',
+          tenant,
+          description: `${tenant} destroyed solution ${resource} 🤖`,
+          timestamp,
+        };
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function fetchMCPEvents(since: number, now: number): Promise<PlatformEvent[]> {
+  const streams = await lokiQuery(
+    '{job="osaas/ai-manager"} |= "level=info" |~ "create|delete|restart|deploy|remove"',
+    Math.floor(since / 1000),
+    Math.floor(now / 1000),
+    200,
+    'backward'
+  );
+
+  const events: PlatformEvent[] = [];
+  for (const stream of streams) {
+    for (const [ts, line] of stream.values) {
+      const event = parseMCPAuditLine(ts, line);
+      if (event) events.push(event);
+    }
+  }
+  return events;
+}
+
 async function fetchPlanChangeEvents(since: number, now: number): Promise<PlatformEvent[]> {
   // POST /tenantplan = plan change event in money-manager
   const streams = await lokiQuery(
@@ -210,12 +347,13 @@ export async function GET(req: NextRequest) {
   if (sinceParam) {
     const since = new Date(sinceParam).getTime();
     try {
-      const [guiEvents, signupEvents, planEvents] = await Promise.all([
+      const [guiEvents, signupEvents, planEvents, mcpEvents] = await Promise.all([
         fetchGUIEvents(since, now),
         fetchSignupEvents(since, now),
         fetchPlanChangeEvents(since, now),
+        fetchMCPEvents(since, now),
       ]);
-      const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents);
+      const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents, mcpEvents);
       const latestTimestamp =
         allEvents.length > 0
           ? new Date(allEvents[0].timestamp).toISOString()
@@ -234,13 +372,14 @@ export async function GET(req: NextRequest) {
   const hasMore = since > oldest;
 
   try {
-    const [guiEvents, signupEvents, planEvents] = await Promise.all([
+    const [guiEvents, signupEvents, planEvents, mcpEvents] = await Promise.all([
       fetchGUIEvents(since, before),
       fetchSignupEvents(since, before),
       fetchPlanChangeEvents(since, before),
+      fetchMCPEvents(since, before),
     ]);
 
-    const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents);
+    const allEvents = mergeAndDedup(guiEvents, signupEvents, planEvents, mcpEvents);
 
     const latestTimestamp =
       allEvents.length > 0
@@ -269,14 +408,15 @@ export async function GET(req: NextRequest) {
 function mergeAndDedup(
   guiEvents: PlatformEvent[],
   signupEvents: PlatformEvent[],
-  planEvents: PlatformEvent[]
+  planEvents: PlatformEvent[],
+  mcpEvents: PlatformEvent[]
 ): PlatformEvent[] {
   const guiSignups = new Set(
     guiEvents.filter((e) => e.type === 'tenant_signup').map((e) => e.tenant)
   );
   const filteredSignups = signupEvents.filter((e) => !guiSignups.has(e.tenant));
 
-  const all = [...guiEvents, ...filteredSignups, ...planEvents];
+  const all = [...guiEvents, ...filteredSignups, ...planEvents, ...mcpEvents];
   all.sort((a, b) => b.timestamp - a.timestamp);
 
   const seen = new Set<string>();
