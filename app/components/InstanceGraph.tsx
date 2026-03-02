@@ -266,6 +266,9 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
   const activeColors = isInDrilldown ? drilldownColors : tenantColors;
 
   const allTimes = new Set<number>();
+  // In drilldown mode, seed with main series times so the full range is always visible
+  // even when the tenant only had instances for part of the window
+  if (isInDrilldown) series.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
   activeSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
   const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
