@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { PlatformEvent } from '../api/events/route';
 import {
   AreaChart,
   Area,
@@ -130,6 +131,14 @@ function CustomTooltip({ active, payload, label, range, yMax, stackOrder }: Tool
 const RANGES: TimeRange[] = ['1h', '6h', '12h', '24h', '48h', '7d'];
 const POLL_INTERVAL = 60_000;
 const TOP_N = 20;
+const RANGE_MS: Record<TimeRange, number> = {
+  '1h': 3_600_000,
+  '6h': 21_600_000,
+  '12h': 43_200_000,
+  '24h': 86_400_000,
+  '48h': 172_800_000,
+  '7d': 604_800_000,
+};
 
 interface InstanceGraphProps {
   focusTenant?: string | null;
@@ -156,6 +165,8 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
   const [dragCurrentTs, setDragCurrentTs] = useState<number | null>(null);
   const dragStartRef = useRef<number | null>(null);
   const plotAreaRef = useRef<{ x: number; width: number } | null>(null);
+
+  const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
 
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
@@ -194,15 +205,28 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
     }
   }, []);
 
+  const fetchEvents = useCallback(async (r: TimeRange) => {
+    const since = new Date(Date.now() - RANGE_MS[r]).toISOString();
+    try {
+      const res = await fetch(`/api/events?since=${encodeURIComponent(since)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPlatformEvents(data.events || []);
+    } catch {
+      // silent - events are supplementary to the graph
+    }
+  }, []);
+
   // Reset zoom when range or drilldown tenant changes
   useEffect(() => { setZoomDomain(null); }, [range]);
   useEffect(() => { setZoomDomain(null); }, [soloedTenant]);
 
-  // Fetch graph on range change
+  // Fetch graph and events on range change
   useEffect(() => {
     setLoading(true);
     fetchGraph(range);
-  }, [range, fetchGraph]);
+    fetchEvents(range);
+  }, [range, fetchGraph, fetchEvents]);
 
   // Poll graph every minute
   useEffect(() => {
@@ -263,7 +287,7 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
   const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
 
   // ---- Per-series deltas: detect which tenant changed at each time step ----
-  // deltaMap[seriesKey][timeIndex] = delta (positive = created, negative = removed)
+  // deltaMap[seriesKey][timestamp] = delta (positive = created, negative = removed)
   const deltaMap = new Map<string, Map<number, number>>();
   activeSeries.forEach((s) => {
     const map = new Map<number, number>();
@@ -274,10 +298,33 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
       const curr = lookup.get(time) ?? 0;
       const prev = lookup.get(sortedTimes[i - 1]) ?? 0;
       const d = curr - prev;
-      if (d !== 0) map.set(i, d);
+      if (d !== 0) map.set(time, d);  // keyed by timestamp so zoom doesn't break index alignment
     });
     if (map.size > 0) deltaMap.set(s.key, map);
   });
+
+  // ---- Event-based dot map from Platform Events ----
+  // Covers solutions and MCP actions that don't show up as Prometheus deltas
+  const eventDotMap = new Map<string, Map<number, number>>();
+  if (!isInDrilldown && platformEvents.length > 0 && sortedTimes.length > 1) {
+    const approxStep = sortedTimes[1] - sortedTimes[0];
+    const maxGap = approxStep * 1.5;
+    for (const event of platformEvents) {
+      if (!['instance_created', 'instance_removed', 'solution_deployed', 'solution_destroyed'].includes(event.type)) continue;
+      const delta = (event.type === 'instance_created' || event.type === 'solution_deployed') ? 1 : -1;
+      if (!activeSeries.find((s) => s.key === event.tenant)) continue;
+      let nearest = sortedTimes[0];
+      let bestDiff = Math.abs(event.timestamp - nearest);
+      for (const t of sortedTimes) {
+        const diff = Math.abs(event.timestamp - t);
+        if (diff < bestDiff) { bestDiff = diff; nearest = t; }
+      }
+      if (bestDiff > maxGap) continue;
+      if (!eventDotMap.has(event.tenant)) eventDotMap.set(event.tenant, new Map());
+      const prev = eventDotMap.get(event.tenant)!.get(nearest) ?? 0;
+      eventDotMap.get(event.tenant)!.set(nearest, prev + delta);
+    }
+  }
 
   // ---- Build sidebar items ----
   const latestValue = (data: DataPoint[]) =>
@@ -493,16 +540,18 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
                   fill={activeColors[s.key] || '#6b7280'}
                   fillOpacity={0.6}
                   strokeWidth={1.5}
-                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
-                    const { cx, cy, index } = props;
-                    if (cx == null || cy == null || index == null) return <g key={`empty-${s.key}`} />;
-                    const seriesDeltas = deltaMap.get(s.key);
-                    if (!seriesDeltas) return <g key={`none-${s.key}-${index}`} />;
-                    const delta = seriesDeltas.get(index);
-                    if (!delta) return <g key={`zero-${s.key}-${index}`} />;
+                  dot={(props: { cx?: number; cy?: number; index?: number; payload?: Record<string, number> }) => {
+                    const { cx, cy, payload } = props;
+                    if (cx == null || cy == null || payload == null) return <g key={`empty-${s.key}`} />;
+                    const time = payload.time as number;
+                    // Event-based dots take precedence (cover solutions/MCP); fall back to Prometheus deltas
+                    const eventDelta = eventDotMap.get(s.key)?.get(time);
+                    const promDelta = deltaMap.get(s.key)?.get(time);
+                    const delta = eventDelta ?? promDelta;
+                    if (!delta) return <g key={`zero-${s.key}-${time}`} />;
                     return (
                       <circle
-                        key={`dot-${s.key}-${index}`}
+                        key={`dot-${s.key}-${time}`}
                         cx={cx}
                         cy={cy}
                         r={Math.min(6, Math.max(3, Math.abs(delta) + 2))}
