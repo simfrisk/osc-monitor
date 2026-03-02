@@ -8,6 +8,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceArea,
   usePlotArea,
   useActiveTooltipCoordinate,
 } from 'recharts';
@@ -125,6 +126,7 @@ function CustomTooltip({ active, payload, label, range, yMax, stackOrder }: Tool
   );
 }
 
+
 const RANGES: TimeRange[] = ['1h', '6h', '12h', '24h', '48h', '7d'];
 const POLL_INTERVAL = 60_000;
 const TOP_N = 20;
@@ -147,6 +149,13 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const { width: chartWidth, height: chartHeight } = useContainerSize(chartContainerRef);
+
+  const [zoomDomain, setZoomDomain] = useState<{ start: number; end: number } | null>(null);
+  // dragStartTs/dragCurrentTs drive the ReferenceArea visuals; dragStartRef avoids stale closures
+  const [dragStartTs, setDragStartTs] = useState<number | null>(null);
+  const [dragCurrentTs, setDragCurrentTs] = useState<number | null>(null);
+  const dragStartRef = useRef<number | null>(null);
+  const plotAreaRef = useRef<{ x: number; width: number } | null>(null);
 
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
@@ -184,6 +193,10 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
       setLoadingDrilldown(false);
     }
   }, []);
+
+  // Reset zoom when range or drilldown tenant changes
+  useEffect(() => { setZoomDomain(null); }, [range]);
+  useEffect(() => { setZoomDomain(null); }, [soloedTenant]);
 
   // Fetch graph on range change
   useEffect(() => {
@@ -284,10 +297,18 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
 
   const isLoading = loading || loadingDrilldown;
 
+  // When zoomed, filter chartData to visible range so XAxis auto-scales naturally
+  const visibleChartData = zoomDomain
+    ? chartData.filter((d) => {
+        const t = d.time as number;
+        return t >= zoomDomain.start && t <= zoomDomain.end;
+      })
+    : chartData;
+
   // Compute max stacked total for explicit Y domain (needed for cursor-to-value mapping)
   const yMax = Math.max(
     1,
-    ...chartData.map((point) =>
+    ...visibleChartData.map((point) =>
       renderSeries.reduce((sum, s) => sum + (Number(point[s.key]) || 0), 0)
     )
   );
@@ -314,6 +335,15 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
           </h2>
         </div>
         <div className="flex gap-1">
+          {zoomDomain && (
+            <button
+              onClick={() => setZoomDomain(null)}
+              className="px-2.5 py-1 text-xs rounded bg-blue-900 text-blue-300 hover:bg-blue-800 transition-colors"
+              title="Reset zoom"
+            >
+              Reset zoom
+            </button>
+          )}
           {RANGES.map((r) => (
             <button
               key={r}
@@ -333,7 +363,72 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
       {/* Main content: chart + sidebar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chart area */}
-        <div ref={chartContainerRef} className="flex-1 relative min-w-0 min-h-0">
+        <div
+          ref={chartContainerRef}
+          className="flex-1 relative min-w-0 min-h-0 select-none"
+          style={{ cursor: dragStartTs != null ? 'crosshair' : 'default' }}
+          onMouseDown={(e) => {
+            // Measure plot area fresh on each drag start
+            const container = e.currentTarget;
+            const grid = container.querySelector('.recharts-cartesian-grid');
+            if (!grid) return;
+            const cRect = container.getBoundingClientRect();
+            const gRect = grid.getBoundingClientRect();
+            const pa = { x: gRect.left - cRect.left, width: gRect.width };
+            if (pa.width <= 0) return;
+            plotAreaRef.current = pa;
+            const relX = e.clientX - cRect.left - pa.x;
+            const ratio = Math.max(0, Math.min(1, relX / pa.width));
+            const visibleMin = zoomDomain?.start ?? sortedTimes[0];
+            const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+            if (!visibleMin || !visibleMax) return;
+            const ts = visibleMin + ratio * (visibleMax - visibleMin);
+            dragStartRef.current = ts;
+            setDragStartTs(ts);
+            setDragCurrentTs(ts);
+          }}
+          onMouseMove={(e) => {
+            if (dragStartRef.current == null) return;
+            const pa = plotAreaRef.current;
+            if (!pa || pa.width <= 0) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const relX = e.clientX - rect.left - pa.x;
+            const ratio = Math.max(0, Math.min(1, relX / pa.width));
+            const visibleMin = zoomDomain?.start ?? sortedTimes[0];
+            const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+            if (!visibleMin || !visibleMax) return;
+            setDragCurrentTs(visibleMin + ratio * (visibleMax - visibleMin));
+          }}
+          onMouseUp={(e) => {
+            if (dragStartRef.current == null) return;
+            const pa = plotAreaRef.current;
+            if (pa && pa.width > 0) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const relX = e.clientX - rect.left - pa.x;
+              const ratio = Math.max(0, Math.min(1, relX / pa.width));
+              const visibleMin = zoomDomain?.start ?? sortedTimes[0];
+              const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+              if (visibleMin && visibleMax) {
+                const endTs = visibleMin + ratio * (visibleMax - visibleMin);
+                const diff = Math.abs(dragStartRef.current - endTs);
+                if (diff > (visibleMax - visibleMin) * 0.01) {
+                  setZoomDomain({
+                    start: Math.min(dragStartRef.current, endTs),
+                    end: Math.max(dragStartRef.current, endTs),
+                  });
+                }
+              }
+            }
+            dragStartRef.current = null;
+            setDragStartTs(null);
+            setDragCurrentTs(null);
+          }}
+          onMouseLeave={() => {
+            dragStartRef.current = null;
+            setDragStartTs(null);
+            setDragCurrentTs(null);
+          }}
+        >
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-gray-500 text-sm">Loading...</div>
@@ -348,7 +443,7 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
             <AreaChart
               width={chartWidth}
               height={chartHeight}
-              data={chartData}
+              data={visibleChartData}
               margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
@@ -369,7 +464,7 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
                 axisLine={{ stroke: '#374151' }}
               />
               <Tooltip
-                content={(props) => (
+                content={dragStartTs != null ? () => null : (props) => (
                   <CustomTooltip
                     {...props}
                     range={range}
@@ -378,6 +473,16 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
                   />
                 )}
               />
+              {dragStartTs != null && dragCurrentTs != null && (
+                <ReferenceArea
+                  x1={Math.min(dragStartTs, dragCurrentTs)}
+                  x2={Math.max(dragStartTs, dragCurrentTs)}
+                  stroke="#3b82f6"
+                  strokeOpacity={0.6}
+                  fill="#3b82f6"
+                  fillOpacity={0.15}
+                />
+              )}
               {renderSeries.map((s) => (
                 <Area
                   key={s.key}
