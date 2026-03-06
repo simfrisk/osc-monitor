@@ -58,9 +58,32 @@ interface NotificationPanelProps {
 
 export default function NotificationPanel({ onTenantClick }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
-  const [mutedTenants, setMutedTenants] = useState<string[]>([]);
-  const [hideInternal, setHideInternal] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const [mutedTenants, setMutedTenants] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem('osc-monitor-muted-tenants');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [hideInternal, setHideInternal] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('osc-monitor-hide-internal') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isMuted, setIsMuted] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = localStorage.getItem('osc-monitor-is-muted');
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -80,6 +103,19 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
       setNotifPermission(Notification.permission as NotifPermission);
     }
   }, []);
+
+  // Persist mute preferences to localStorage
+  useEffect(() => {
+    localStorage.setItem('osc-monitor-muted-tenants', JSON.stringify(mutedTenants));
+  }, [mutedTenants]);
+
+  useEffect(() => {
+    localStorage.setItem('osc-monitor-hide-internal', String(hideInternal));
+  }, [hideInternal]);
+
+  useEffect(() => {
+    localStorage.setItem('osc-monitor-is-muted', String(isMuted));
+  }, [isMuted]);
 
   const requestNotifications = async () => {
     if (!('Notification' in window)) return;
