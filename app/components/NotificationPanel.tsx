@@ -54,19 +54,13 @@ function sendMacNotification(events: PlatformEvent[]) {
 
 interface NotificationPanelProps {
   onTenantClick?: (tenant: string) => void;
+  mutedTenants: string[];
+  onMute: (tenant: string) => void;
+  onUnmute: (tenant: string) => void;
 }
 
-export default function NotificationPanel({ onTenantClick }: NotificationPanelProps) {
+export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
-  const [mutedTenants, setMutedTenants] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const stored = localStorage.getItem('osc-monitor-muted-tenants');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
   const [hideInternal, setHideInternal] = useState(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -103,11 +97,6 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
       setNotifPermission(Notification.permission as NotifPermission);
     }
   }, []);
-
-  // Persist mute preferences to localStorage
-  useEffect(() => {
-    localStorage.setItem('osc-monitor-muted-tenants', JSON.stringify(mutedTenants));
-  }, [mutedTenants]);
 
   useEffect(() => {
     localStorage.setItem('osc-monitor-hide-internal', String(hideInternal));
@@ -220,11 +209,8 @@ export default function NotificationPanel({ onTenantClick }: NotificationPanelPr
     return () => observer.disconnect();
   }, [fetchOlder]);
 
-  const handleMute = (tenant: string) =>
-    setMutedTenants((prev) => (prev.includes(tenant) ? prev : [...prev, tenant]));
-
-  const handleUnmute = (tenant: string) =>
-    setMutedTenants((prev) => prev.filter((t) => t !== tenant));
+  const handleMute = (tenant: string) => onMute(tenant);
+  const handleUnmute = (tenant: string) => onUnmute(tenant);
 
   const filteredEvents = events.filter((e) => {
     if (mutedTenants.includes(e.tenant)) return false;

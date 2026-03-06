@@ -15,6 +15,7 @@ interface TenantSidebarProps {
   dimmed?: Set<string>;
   onSelect?: (name: string) => void;
   onBack?: () => void;
+  onMute?: (name: string) => void;
 }
 
 export default function TenantSidebar({
@@ -25,6 +26,7 @@ export default function TenantSidebar({
   dimmed = new Set(),
   onSelect,
   onBack,
+  onMute,
 }: TenantSidebarProps) {
   const [search, setSearch] = useState('');
 
@@ -65,7 +67,7 @@ export default function TenantSidebar({
           return (
             <div
               key={item.name}
-              className={`flex items-center gap-2 px-3 py-1.5 transition-colors ${
+              className={`group flex items-center gap-2 px-3 py-1.5 transition-colors ${
                 onSelect ? 'cursor-pointer hover:bg-gray-800' : ''
               } ${isDimmed ? 'opacity-40' : ''} ${isSelected ? 'bg-gray-800' : ''}`}
               onClick={() => onSelect?.(item.name)}
@@ -75,6 +77,15 @@ export default function TenantSidebar({
                 style={{ backgroundColor: color }}
               />
               <span className="text-xs text-gray-200 flex-1 truncate">{item.name}</span>
+              {onMute && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onMute(item.name); }}
+                  className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all text-sm leading-none flex-shrink-0"
+                  title={`Mute ${item.name}`}
+                >
+                  ×
+                </button>
+              )}
               <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
                 {item.count}
               </span>

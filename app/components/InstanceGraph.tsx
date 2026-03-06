@@ -14,6 +14,7 @@ import {
   useActiveTooltipCoordinate,
 } from 'recharts';
 import TenantSidebar, { SidebarItem } from './TenantSidebar';
+import MutedTenants from './MutedTenants';
 
 function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -142,9 +143,12 @@ const RANGE_MS: Record<TimeRange, number> = {
 
 interface InstanceGraphProps {
   focusTenant?: string | null;
+  mutedTenants?: string[];
+  onMute?: (tenant: string) => void;
+  onUnmute?: (tenant: string) => void;
 }
 
-export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
+export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute }: InstanceGraphProps) {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
@@ -261,7 +265,9 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
   type ActiveSeries = { key: string; data: DataPoint[] };
   const activeSeries: ActiveSeries[] = isInDrilldown
     ? drilldownSeries.map((s) => ({ key: s.service, data: s.data }))
-    : series.map((s) => ({ key: s.namespace, data: s.data }));
+    : series
+        .filter((s) => !mutedTenants.includes(s.namespace))
+        .map((s) => ({ key: s.namespace, data: s.data }));
 
   const activeColors = isInDrilldown ? drilldownColors : tenantColors;
 
@@ -338,6 +344,7 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
         .map((s) => ({ name: s.service, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count)
     : series
+        .filter((s) => !mutedTenants.includes(s.namespace))
         .map((s) => ({ name: s.namespace, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count);
 
@@ -409,6 +416,11 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
           ))}
         </div>
       </div>
+
+      {/* Muted tenants bar */}
+      {!isInDrilldown && onUnmute && (
+        <MutedTenants mutedTenants={mutedTenants} onUnmute={onUnmute} />
+      )}
 
       {/* Main content: chart + sidebar */}
       <div className="flex flex-1 overflow-hidden">
@@ -586,6 +598,7 @@ export default function InstanceGraph({ focusTenant }: InstanceGraphProps) {
             selected={soloedTenant}
             onSelect={isInDrilldown ? undefined : handleTenantSelect}
             onBack={isInDrilldown ? () => setSoloedTenant(null) : undefined}
+            onMute={!isInDrilldown && onMute ? onMute : undefined}
           />
         </div>
       </div>
