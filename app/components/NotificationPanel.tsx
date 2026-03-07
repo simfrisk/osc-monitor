@@ -51,9 +51,11 @@ interface NotificationPanelProps {
   onRemoveInternal: (tenant: string) => void;
   hideInternal: boolean;
   onHideInternalChange: (value: boolean) => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
-export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal, hideInternal, onHideInternalChange }: NotificationPanelProps) {
+export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal, hideInternal, onHideInternalChange, isFullscreen, onToggleFullscreen }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [isMuted, setIsMuted] = useState(() => {
     if (typeof window === 'undefined') return true;
@@ -254,6 +256,25 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
             <span className="hidden md:inline text-xs text-gray-600">
               {lastPoll.toLocaleTimeString()}
             </span>
+          )}
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? 'Exit fullscreen' : 'Expand panel'}
+              className="text-gray-500 hover:text-gray-300 text-sm transition-colors ml-1"
+            >
+              {isFullscreen ? (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 1 6 6 1 6" />
+                  <polyline points="10 15 10 10 15 10" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 6 1 1 6 1" />
+                  <polyline points="15 10 15 15 10 15" />
+                </svg>
+              )}
+            </button>
           )}
         </div>
       </div>

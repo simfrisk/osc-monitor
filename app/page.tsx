@@ -12,6 +12,7 @@ const DEFAULT_INTERNAL_TENANTS = [
 
 export default function Home() {
   const [focusTenant, setFocusTenant] = useState<string | null>(null);
+  const [fullscreenPanel, setFullscreenPanel] = useState<'events' | 'graph' | null>(null);
   const [mutedTenants, setMutedTenants] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -75,30 +76,38 @@ export default function Home() {
       {/* Main content */}
       <main className="flex flex-col md:flex-row flex-1 overflow-hidden gap-4 p-4">
         {/* Notification panel - half height on mobile, 40% width on desktop */}
-        <div className="h-1/2 md:h-auto md:w-2/5 flex-shrink-0 flex flex-col overflow-hidden">
-          <NotificationPanel
-            onTenantClick={setFocusTenant}
-            mutedTenants={mutedTenants}
-            onMute={handleMute}
-            onUnmute={handleUnmute}
-            internalTenants={internalTenants}
-            onAddInternal={handleAddInternal}
-            onRemoveInternal={handleRemoveInternal}
-            hideInternal={hideInternal}
-            onHideInternalChange={setHideInternal}
-          />
-        </div>
+        {fullscreenPanel !== 'graph' && (
+          <div className={`${fullscreenPanel === 'events' ? 'flex-1' : 'h-1/2 md:h-auto md:w-2/5'} flex-shrink-0 flex flex-col overflow-hidden`}>
+            <NotificationPanel
+              onTenantClick={setFocusTenant}
+              mutedTenants={mutedTenants}
+              onMute={handleMute}
+              onUnmute={handleUnmute}
+              internalTenants={internalTenants}
+              onAddInternal={handleAddInternal}
+              onRemoveInternal={handleRemoveInternal}
+              hideInternal={hideInternal}
+              onHideInternalChange={setHideInternal}
+              isFullscreen={fullscreenPanel === 'events'}
+              onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'events' ? null : 'events')}
+            />
+          </div>
+        )}
 
         {/* Instance graph - half height on mobile, rest on desktop */}
-        <div className="h-1/2 md:h-auto flex-1 flex flex-col overflow-hidden">
-          <InstanceGraph
-            focusTenant={focusTenant}
-            mutedTenants={mutedTenants}
-            onMute={handleMute}
-            onUnmute={handleUnmute}
-            internalTenants={hideInternal ? internalTenants : []}
-          />
-        </div>
+        {fullscreenPanel !== 'events' && (
+          <div className={`${fullscreenPanel === 'graph' ? 'flex-1' : 'h-1/2 md:h-auto flex-1'} flex flex-col overflow-hidden`}>
+            <InstanceGraph
+              focusTenant={focusTenant}
+              mutedTenants={mutedTenants}
+              onMute={handleMute}
+              onUnmute={handleUnmute}
+              internalTenants={hideInternal ? internalTenants : []}
+              isFullscreen={fullscreenPanel === 'graph'}
+              onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

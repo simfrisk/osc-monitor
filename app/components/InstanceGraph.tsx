@@ -147,9 +147,11 @@ interface InstanceGraphProps {
   onMute?: (tenant: string) => void;
   onUnmute?: (tenant: string) => void;
   internalTenants?: string[];
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
-export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute, internalTenants = [] }: InstanceGraphProps) {
+export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute, internalTenants = [], isFullscreen, onToggleFullscreen }: InstanceGraphProps) {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
@@ -389,7 +391,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
             {soloedTenant ?? 'Instance Graph'}
           </h2>
         </div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           {zoomDomain && (
             <button
               onClick={() => setZoomDomain(null)}
@@ -412,6 +414,25 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               {r}
             </button>
           ))}
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? 'Exit fullscreen' : 'Expand panel'}
+              className="text-gray-500 hover:text-gray-300 text-sm transition-colors ml-2"
+            >
+              {isFullscreen ? (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 1 6 6 1 6" />
+                  <polyline points="10 15 10 10 15 10" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 6 1 1 6 1" />
+                  <polyline points="15 10 15 15 10 15" />
+                </svg>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
