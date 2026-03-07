@@ -322,15 +322,6 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   activeSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
   const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
-  const chartData = sortedTimes.map((time) => {
-    const point: Record<string, number | string> = { time };
-    activeSeries.forEach((s) => {
-      const dp = s.data.find((d) => d.time === time);
-      point[s.key] = dp?.value ?? 0;
-    });
-    return point;
-  });
-
   const sortedByPeak = activeSeries
     .map((s) => ({ key: s.key, peak: s.data.length ? Math.max(...s.data.map((d) => d.value)) : 0 }))
     .sort((a, b) => b.peak - a.peak);
@@ -339,6 +330,15 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
     .map((s) => s.key);
 
   const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
+
+  const chartData = sortedTimes.map((time) => {
+    const point: Record<string, number | string> = { time };
+    renderSeries.forEach((s) => {
+      const dp = s.data.find((d) => d.time === time);
+      point[s.key] = dp?.value ?? 0;
+    });
+    return point;
+  });
 
   // ---- Per-series deltas: detect which tenant changed at each time step ----
   // deltaMap[seriesKey][timestamp] = delta (positive = created, negative = removed)
