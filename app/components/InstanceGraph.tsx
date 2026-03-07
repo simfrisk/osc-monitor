@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { PlatformEvent } from '../api/events/route';
 import {
   AreaChart,
@@ -66,20 +66,26 @@ function formatTime(timestamp: number, range: TimeRange): string {
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+interface TooltipData {
+  stackOrder: string[];
+  yMin: number;
+  yMax: number;
+  range: TimeRange;
+}
+
 interface TooltipProps {
   active?: boolean;
   payload?: readonly { name: string; value: number; color: string }[];
   label?: string | number;
-  range: TimeRange;
-  yMin: number;
-  yMax: number;
-  stackOrder: string[];
+  tooltipDataRef: React.MutableRefObject<TooltipData>;
 }
 
-function CustomTooltip({ active, payload, label, range, yMin, yMax, stackOrder }: TooltipProps) {
+function CustomTooltip({ active, payload, label, tooltipDataRef }: TooltipProps) {
   // Use recharts' own hooks - works because recharts calls this via React.createElement
   const plotArea = usePlotArea();
   const coordinate = useActiveTooltipCoordinate();
+  // Read from ref so this function can be stable (no stale closure on stackOrder/yMin/yMax)
+  const { stackOrder, yMin, yMax, range } = tooltipDataRef.current;
 
   if (!active || !payload || !label) return null;
   const items = payload.filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
@@ -449,6 +455,17 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   // Stack order (bottom to top) matches the render order of Area components
   const stackOrder = renderSeries.map((s) => s.key);
 
+  // Keep tooltip data in a ref so the content callback can be stable (avoids stale closure
+  // where recharts caches the content function and misses stackOrder/yMin/yMax updates)
+  const tooltipDataRef = useRef<TooltipData>({ stackOrder, yMin, yMax, range });
+  tooltipDataRef.current = { stackOrder, yMin, yMax, range };
+
+  // Stable content function: never recreated, reads current values from ref each call
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tooltipContent = useMemo(() => (props: Record<string, unknown>) => (
+    <CustomTooltip {...(props as unknown as TooltipProps)} tooltipDataRef={tooltipDataRef} />
+  ), []);
+
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
       {/* Graph Header */}
@@ -641,15 +658,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
                 axisLine={{ stroke: '#374151' }}
               />
               <Tooltip
-                content={dragStartTs != null ? () => null : (props) => (
-                  <CustomTooltip
-                    {...props}
-                    range={range}
-                    yMin={yMin}
-                    yMax={yMax}
-                    stackOrder={stackOrder}
-                  />
-                )}
+                content={dragStartRef.current != null ? () => null : tooltipContent}
               />
               {dragStartTs != null && dragCurrentTs != null && (
                 <ReferenceArea
