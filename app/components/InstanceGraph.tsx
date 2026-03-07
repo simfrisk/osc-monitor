@@ -174,6 +174,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   const plotAreaRef = useRef<{ x: number; width: number } | null>(null);
 
   const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
+  const [showAll, setShowAll] = useState(false);
 
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
@@ -287,10 +288,11 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
     return point;
   });
 
-  const topKeys = activeSeries
+  const sortedByPeak = activeSeries
     .map((s) => ({ key: s.key, peak: s.data.length ? Math.max(...s.data.map((d) => d.value)) : 0 }))
-    .sort((a, b) => b.peak - a.peak)
-    .slice(0, TOP_N)
+    .sort((a, b) => b.peak - a.peak);
+
+  const topKeys = (showAll ? sortedByPeak : sortedByPeak.slice(0, TOP_N))
     .map((s) => s.key);
 
   const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
@@ -392,6 +394,19 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
           </h2>
         </div>
         <div className="flex items-center gap-1">
+          {!isInDrilldown && (
+            <button
+              onClick={() => setShowAll((prev) => !prev)}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                showAll
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title={showAll ? `Show top ${TOP_N} tenants` : 'Show all tenants'}
+            >
+              {showAll ? `Top ${TOP_N}` : 'All'}
+            </button>
+          )}
           {zoomDomain && (
             <button
               onClick={() => setZoomDomain(null)}
