@@ -12,6 +12,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'namespace required' }, { status: 400 });
   }
 
+  if (!/^[a-z0-9-]+$/.test(tenant)) {
+    return NextResponse.json({ error: 'invalid namespace' }, { status: 400 });
+  }
+
   const now = nowSeconds();
   const rangeSecs = rangeSeconds(range);
   const start = now - rangeSecs;
