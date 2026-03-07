@@ -356,6 +356,11 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
 
   const isLoading = loading || loadingDrilldown;
 
+  // Full time range boundaries (used for X-axis domain so chart always shows the full range)
+  const now = Date.now();
+  const fullRangeStart = now - RANGE_MS[range];
+  const fullRangeEnd = now;
+
   // When zoomed, filter chartData to visible range so XAxis auto-scales naturally
   const visibleChartData = zoomDomain
     ? chartData.filter((d) => {
@@ -475,8 +480,8 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
             plotAreaRef.current = pa;
             const relX = e.clientX - cRect.left - pa.x;
             const ratio = Math.max(0, Math.min(1, relX / pa.width));
-            const visibleMin = zoomDomain?.start ?? sortedTimes[0];
-            const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+            const visibleMin = zoomDomain?.start ?? fullRangeStart;
+            const visibleMax = zoomDomain?.end ?? fullRangeEnd;
             if (!visibleMin || !visibleMax) return;
             const ts = visibleMin + ratio * (visibleMax - visibleMin);
             dragStartRef.current = ts;
@@ -490,8 +495,8 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
             const rect = e.currentTarget.getBoundingClientRect();
             const relX = e.clientX - rect.left - pa.x;
             const ratio = Math.max(0, Math.min(1, relX / pa.width));
-            const visibleMin = zoomDomain?.start ?? sortedTimes[0];
-            const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+            const visibleMin = zoomDomain?.start ?? fullRangeStart;
+            const visibleMax = zoomDomain?.end ?? fullRangeEnd;
             if (!visibleMin || !visibleMax) return;
             setDragCurrentTs(visibleMin + ratio * (visibleMax - visibleMin));
           }}
@@ -502,8 +507,8 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               const rect = e.currentTarget.getBoundingClientRect();
               const relX = e.clientX - rect.left - pa.x;
               const ratio = Math.max(0, Math.min(1, relX / pa.width));
-              const visibleMin = zoomDomain?.start ?? sortedTimes[0];
-              const visibleMax = zoomDomain?.end ?? sortedTimes[sortedTimes.length - 1];
+              const visibleMin = zoomDomain?.start ?? fullRangeStart;
+              const visibleMax = zoomDomain?.end ?? fullRangeEnd;
               if (visibleMin && visibleMax) {
                 const endTs = visibleMin + ratio * (visibleMax - visibleMin);
                 const diff = Math.abs(dragStartRef.current - endTs);
@@ -546,7 +551,8 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               <XAxis
                 dataKey="time"
                 type="number"
-                domain={['dataMin', 'dataMax']}
+                domain={zoomDomain ? ['dataMin', 'dataMax'] : [fullRangeStart, fullRangeEnd]}
+                allowDataOverflow
                 tickFormatter={(v) => formatTime(v as number, range)}
                 tick={{ fill: '#6b7280', fontSize: 10 }}
                 tickLine={false}
