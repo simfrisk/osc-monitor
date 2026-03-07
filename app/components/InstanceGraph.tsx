@@ -86,17 +86,30 @@ function CustomTooltip({ active, payload, label, range, yMin, yMax, stackOrder }
 
   // Determine which stacked band the cursor is in using recharts' exact plot area
   let hoveredKey: string | null = null;
-  if (coordinate && plotArea && plotArea.height > 0 && yMax > 0) {
+  if (coordinate && plotArea && plotArea.height > 0 && yMax > yMin) {
     const plotRelY = coordinate.y - plotArea.y;
     const t = Math.max(0, Math.min(1, plotRelY / plotArea.height));
     const valueAtCursor = yMin + (1 - t) * (yMax - yMin);
+    // Walk the stack bottom-to-top using stackOrder (matches Area render order)
     const payloadMap = new Map(payload.map((p) => [p.name, p.value]));
     let cumulative = 0;
     for (const key of stackOrder) {
-      cumulative += payloadMap.get(key) || 0;
-      if (valueAtCursor <= cumulative) {
+      const val = payloadMap.get(key) || 0;
+      const bandBottom = cumulative;
+      cumulative += val;
+      // Match if cursor falls within this band (inclusive on both edges for robustness)
+      if (val > 0 && valueAtCursor >= bandBottom && valueAtCursor <= cumulative) {
         hoveredKey = key;
         break;
+      }
+    }
+    // Fallback: if cursor is above all bands (e.g. near the top when zoomed out), pick the top band
+    if (!hoveredKey && cumulative > 0 && valueAtCursor > cumulative) {
+      for (let i = stackOrder.length - 1; i >= 0; i--) {
+        if ((payloadMap.get(stackOrder[i]) || 0) > 0) {
+          hoveredKey = stackOrder[i];
+          break;
+        }
       }
     }
   }
@@ -271,6 +284,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   }, []);
   useEffect(() => { setZoomDomain(null); resetYZoom(); }, [range, resetYZoom]);
   useEffect(() => { setZoomDomain(null); resetYZoom(); }, [soloedTenant, resetYZoom]);
+  useEffect(() => { resetYZoom(); }, [showAll, resetYZoom]);
 
   // Fetch graph and events on range change
   useEffect(() => {
@@ -318,10 +332,6 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
 
   const activeColors = isInDrilldown ? drilldownColors : tenantColors;
 
-  const allTimes = new Set<number>();
-  activeSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
-  const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
-
   const sortedByPeak = activeSeries
     .map((s) => ({ key: s.key, peak: s.data.length ? Math.max(...s.data.map((d) => d.value)) : 0 }))
     .sort((a, b) => b.peak - a.peak);
@@ -331,11 +341,23 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
 
   const renderSeries = activeSeries.filter((s) => topKeys.includes(s.key));
 
+  // Build time axis and chart data from renderSeries only so tooltip matches rendered areas
+  const allTimes = new Set<number>();
+  renderSeries.forEach((s) => s.data.forEach((d) => allTimes.add(d.time)));
+  const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
+
+  // Pre-build lookups for O(1) access instead of O(n) find per point
+  const seriesLookups = new Map<string, Map<number, number>>();
+  renderSeries.forEach((s) => {
+    const lookup = new Map<number, number>();
+    s.data.forEach((d) => lookup.set(d.time, d.value));
+    seriesLookups.set(s.key, lookup);
+  });
+
   const chartData = sortedTimes.map((time) => {
     const point: Record<string, number | string> = { time };
     renderSeries.forEach((s) => {
-      const dp = s.data.find((d) => d.time === time);
-      point[s.key] = dp?.value ?? 0;
+      point[s.key] = seriesLookups.get(s.key)?.get(time) ?? 0;
     });
     return point;
   });
