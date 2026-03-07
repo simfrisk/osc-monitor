@@ -4,18 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { PlatformEvent } from '../api/events/route';
 import EventItem from './EventItem';
 import MutedTenants from './MutedTenants';
-
-const INTERNAL_TENANTS = new Set([
-  'eyevinn',
-  'eyevinnlab',
-  'simonsteam',
-  'team2',
-  'oscaidev',
-  'testnp',
-  'simondemo',
-  'birme',
-  'birispriv',
-]);
+import InternalTenants from './InternalTenants';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 
@@ -57,9 +46,12 @@ interface NotificationPanelProps {
   mutedTenants: string[];
   onMute: (tenant: string) => void;
   onUnmute: (tenant: string) => void;
+  internalTenants: string[];
+  onAddInternal: (tenant: string) => void;
+  onRemoveInternal: (tenant: string) => void;
 }
 
-export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute }: NotificationPanelProps) {
+export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [hideInternal, setHideInternal] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -151,7 +143,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
         // Fire macOS notification + audio ping for genuinely new events (skip muted/internal)
         setTimeout(() => {
           const notifiable = trulyNew.filter(
-            (e) => !mutedTenants.includes(e.tenant) && !(hideInternal && INTERNAL_TENANTS.has(e.tenant))
+            (e) => !mutedTenants.includes(e.tenant) && !(hideInternal && internalTenants.includes(e.tenant))
           );
           if (notifiable.length > 0) {
             sendMacNotification(notifiable);
@@ -163,7 +155,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
     } catch {
       // silent - don't break the UI on poll errors
     }
-  }, [mutedTenants, hideInternal, isMuted]);
+  }, [mutedTenants, hideInternal, isMuted, internalTenants]);
 
   // Load older events (scroll to bottom)
   const fetchOlder = useCallback(async () => {
@@ -214,7 +206,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
 
   const filteredEvents = events.filter((e) => {
     if (mutedTenants.includes(e.tenant)) return false;
-    if (hideInternal && INTERNAL_TENANTS.has(e.tenant)) return false;
+    if (hideInternal && internalTenants.includes(e.tenant)) return false;
     return true;
   });
 
@@ -278,6 +270,15 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
 
       {/* Muted tenants bar */}
       <MutedTenants mutedTenants={mutedTenants} onUnmute={handleUnmute} />
+
+      {/* Internal tenants bar - visible when hide internal is active */}
+      {hideInternal && (
+        <InternalTenants
+          internalTenants={internalTenants}
+          onAdd={onAddInternal}
+          onRemove={onRemoveInternal}
+        />
+      )}
 
       {/* Event feed */}
       <div className="flex-1 overflow-y-auto">
