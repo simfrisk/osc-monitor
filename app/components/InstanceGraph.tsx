@@ -175,6 +175,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
 
   const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
   const [showAll, setShowAll] = useState(false);
+  const [yZoomLevel, setYZoomLevel] = useState(1); // 1 = full range, higher = zoomed in
 
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
@@ -226,8 +227,8 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   }, []);
 
   // Reset zoom when range or drilldown tenant changes
-  useEffect(() => { setZoomDomain(null); }, [range]);
-  useEffect(() => { setZoomDomain(null); }, [soloedTenant]);
+  useEffect(() => { setZoomDomain(null); setYZoomLevel(1); }, [range]);
+  useEffect(() => { setZoomDomain(null); setYZoomLevel(1); }, [soloedTenant]);
 
   // Fetch graph and events on range change
   useEffect(() => {
@@ -370,12 +371,13 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
     : chartData;
 
   // Compute max stacked total for explicit Y domain (needed for cursor-to-value mapping)
-  const yMax = Math.max(
+  const yMaxFull = Math.max(
     1,
     ...visibleChartData.map((point) =>
       renderSeries.reduce((sum, s) => sum + (Number(point[s.key]) || 0), 0)
     )
   );
+  const yMax = Math.max(1, Math.ceil(yMaxFull / yZoomLevel));
 
   // Stack order (bottom to top) matches the render order of Area components
   const stackOrder = renderSeries.map((s) => s.key);
@@ -412,15 +414,32 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               {showAll ? `Top ${TOP_N}` : 'All'}
             </button>
           )}
-          {zoomDomain && (
+          {(zoomDomain || yZoomLevel > 1) && (
             <button
-              onClick={() => setZoomDomain(null)}
+              onClick={() => { setZoomDomain(null); setYZoomLevel(1); }}
               className="px-2.5 py-1 text-xs rounded bg-blue-900 text-blue-300 hover:bg-blue-800 transition-colors"
               title="Reset zoom"
             >
               Reset zoom
             </button>
           )}
+          <div className="flex items-center gap-0.5 border border-gray-700 rounded overflow-hidden">
+            <button
+              onClick={() => setYZoomLevel((prev) => Math.min(prev * 2, 32))}
+              className="px-1.5 py-1 text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
+              title="Zoom in vertically"
+            >
+              Y+
+            </button>
+            <button
+              onClick={() => setYZoomLevel((prev) => Math.max(prev / 2, 1))}
+              className="px-1.5 py-1 text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Zoom out vertically"
+              disabled={yZoomLevel <= 1}
+            >
+              Y-
+            </button>
+          </div>
           {RANGES.map((r) => (
             <button
               key={r}
@@ -561,6 +580,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               />
               <YAxis
                 domain={[0, yMax]}
+                allowDataOverflow
                 tick={{ fill: '#6b7280', fontSize: 10 }}
                 tickLine={false}
                 axisLine={{ stroke: '#374151' }}
