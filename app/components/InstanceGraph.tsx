@@ -681,6 +681,78 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
               <div className="text-gray-600 text-sm">No data</div>
             </div>
           )}
+          {/* Minimap - shows when zoomed */}
+          {(yZoomLevel > 1 || zoomDomain) && chartData.length > 0 && (
+            <div className="absolute bottom-2 right-2 pointer-events-none">
+              <div
+                className="relative bg-gray-950/80 border border-gray-600 rounded"
+                style={{ width: 120, height: 60 }}
+              >
+                {/* Simplified sparkline of the full data */}
+                <svg width={120} height={60} className="absolute inset-0">
+                  {(() => {
+                    // Build a simple area path from the total stacked values
+                    const totals = chartData.map((point) =>
+                      renderSeries.reduce((sum, s) => sum + (Number(point[s.key]) || 0), 0)
+                    );
+                    const maxTotal = Math.max(1, ...totals);
+                    const padding = 2;
+                    const w = 120 - padding * 2;
+                    const h = 60 - padding * 2;
+                    if (totals.length < 2) return null;
+                    const points = totals.map((v, i) => {
+                      const x = padding + (i / (totals.length - 1)) * w;
+                      const y = padding + h - (v / maxTotal) * h;
+                      return `${x},${y}`;
+                    });
+                    const baseline = `${padding + w},${padding + h} ${padding},${padding + h}`;
+                    return (
+                      <path
+                        d={`M${points.join(' L')} L${baseline} Z`}
+                        fill="#3b82f6"
+                        fillOpacity={0.3}
+                        stroke="#3b82f6"
+                        strokeWidth={0.5}
+                        strokeOpacity={0.6}
+                      />
+                    );
+                  })()}
+                </svg>
+                {/* Viewport rectangle */}
+                {(() => {
+                  const padding = 2;
+                  const w = 120 - padding * 2;
+                  const h = 60 - padding * 2;
+                  // X position
+                  const xStart = zoomDomain
+                    ? (zoomDomain.start - fullRangeStart) / (fullRangeEnd - fullRangeStart)
+                    : 0;
+                  const xEnd = zoomDomain
+                    ? (zoomDomain.end - fullRangeStart) / (fullRangeEnd - fullRangeStart)
+                    : 1;
+                  // Y position (inverted: bottom of chart = low values)
+                  const yBottom = yOffset / yMaxFull;
+                  const yTop = Math.min(1, (yOffset + visibleRange) / yMaxFull);
+                  const rectX = padding + xStart * w;
+                  const rectW = Math.max(2, (xEnd - xStart) * w);
+                  const rectY = padding + (1 - yTop) * h;
+                  const rectH = Math.max(2, (yTop - yBottom) * h);
+                  return (
+                    <div
+                      className="absolute border border-white/60 rounded-sm"
+                      style={{
+                        left: rectX,
+                        top: rectY,
+                        width: rectW,
+                        height: rectH,
+                        backgroundColor: 'rgba(255,255,255,0.08)',
+                      }}
+                    />
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar - hidden on mobile */}
