@@ -71,11 +71,12 @@ interface TooltipProps {
   payload?: readonly { name: string; value: number; color: string }[];
   label?: string | number;
   range: TimeRange;
+  yMin: number;
   yMax: number;
   stackOrder: string[];
 }
 
-function CustomTooltip({ active, payload, label, range, yMax, stackOrder }: TooltipProps) {
+function CustomTooltip({ active, payload, label, range, yMin, yMax, stackOrder }: TooltipProps) {
   // Use recharts' own hooks - works because recharts calls this via React.createElement
   const plotArea = usePlotArea();
   const coordinate = useActiveTooltipCoordinate();
@@ -88,7 +89,7 @@ function CustomTooltip({ active, payload, label, range, yMax, stackOrder }: Tool
   if (coordinate && plotArea && plotArea.height > 0 && yMax > 0) {
     const plotRelY = coordinate.y - plotArea.y;
     const t = Math.max(0, Math.min(1, plotRelY / plotArea.height));
-    const valueAtCursor = (1 - t) * yMax;
+    const valueAtCursor = yMin + (1 - t) * (yMax - yMin);
     const payloadMap = new Map(payload.map((p) => [p.name, p.value]));
     let cumulative = 0;
     for (const key of stackOrder) {
@@ -176,6 +177,9 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [yZoomLevel, setYZoomLevel] = useState(1); // 1 = full range, higher = zoomed in
+  const [yOffset, setYOffset] = useState(0); // bottom of visible Y range
+  const yZoomRef = useRef(1);
+  const yOffsetRef = useRef(0);
 
   const fetchGraph = useCallback(async (r: TimeRange) => {
     try {
@@ -226,9 +230,47 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
     }
   }, []);
 
+  const yMaxFullRef = useRef(1);
+
+  // Wheel handler for vertical zoom (Alt+scroll) and pan (scroll when zoomed)
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      const maxFull = yMaxFullRef.current;
+      if (!maxFull || maxFull <= 1) return;
+      if (e.altKey || e.metaKey) {
+        e.preventDefault();
+        const zoomFactor = e.deltaY > 0 ? 0.85 : 1.18;
+        const newZoom = Math.max(1, Math.min(32, yZoomRef.current * zoomFactor));
+        const newRange = maxFull / newZoom;
+        const oldCenter = yOffsetRef.current + (maxFull / yZoomRef.current) / 2;
+        const newOffset = Math.max(0, Math.min(maxFull - newRange, oldCenter - newRange / 2));
+        yZoomRef.current = newZoom;
+        yOffsetRef.current = newZoom <= 1 ? 0 : newOffset;
+        setYZoomLevel(newZoom);
+        setYOffset(yOffsetRef.current);
+      } else if (yZoomRef.current > 1) {
+        e.preventDefault();
+        const panStep = (maxFull / yZoomRef.current) * 0.15;
+        const delta = e.deltaY > 0 ? -panStep : panStep;
+        const maxOffset = maxFull - maxFull / yZoomRef.current;
+        const newOffset = Math.max(0, Math.min(maxOffset, yOffsetRef.current + delta));
+        yOffsetRef.current = newOffset;
+        setYOffset(newOffset);
+      }
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
   // Reset zoom when range or drilldown tenant changes
-  useEffect(() => { setZoomDomain(null); setYZoomLevel(1); }, [range]);
-  useEffect(() => { setZoomDomain(null); setYZoomLevel(1); }, [soloedTenant]);
+  const resetYZoom = useCallback(() => {
+    setYZoomLevel(1); setYOffset(0);
+    yZoomRef.current = 1; yOffsetRef.current = 0;
+  }, []);
+  useEffect(() => { setZoomDomain(null); resetYZoom(); }, [range, resetYZoom]);
+  useEffect(() => { setZoomDomain(null); resetYZoom(); }, [soloedTenant, resetYZoom]);
 
   // Fetch graph and events on range change
   useEffect(() => {
@@ -377,7 +419,10 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
       renderSeries.reduce((sum, s) => sum + (Number(point[s.key]) || 0), 0)
     )
   );
-  const yMax = Math.max(1, Math.ceil(yMaxFull / yZoomLevel));
+  yMaxFullRef.current = yMaxFull;
+  const visibleRange = yMaxFull / yZoomLevel;
+  const yMin = yOffset;
+  const yMax = Math.max(1, Math.ceil(yMin + visibleRange));
 
   // Stack order (bottom to top) matches the render order of Area components
   const stackOrder = renderSeries.map((s) => s.key);
@@ -416,30 +461,18 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
           )}
           {(zoomDomain || yZoomLevel > 1) && (
             <button
-              onClick={() => { setZoomDomain(null); setYZoomLevel(1); }}
+              onClick={() => { setZoomDomain(null); resetYZoom(); }}
               className="px-2.5 py-1 text-xs rounded bg-blue-900 text-blue-300 hover:bg-blue-800 transition-colors"
               title="Reset zoom"
             >
               Reset zoom
             </button>
           )}
-          <div className="flex items-center gap-0.5 border border-gray-700 rounded overflow-hidden">
-            <button
-              onClick={() => setYZoomLevel((prev) => Math.min(prev * 2, 32))}
-              className="px-1.5 py-1 text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
-              title="Zoom in vertically"
-            >
-              Y+
-            </button>
-            <button
-              onClick={() => setYZoomLevel((prev) => Math.max(prev / 2, 1))}
-              className="px-1.5 py-1 text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Zoom out vertically"
-              disabled={yZoomLevel <= 1}
-            >
-              Y-
-            </button>
-          </div>
+          {yZoomLevel > 1 && (
+            <span className="px-2 py-1 text-xs text-gray-500" title="Alt+scroll to zoom, scroll to pan">
+              {yZoomLevel.toFixed(1)}x
+            </span>
+          )}
           {RANGES.map((r) => (
             <button
               key={r}
@@ -579,7 +612,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
                 minTickGap={40}
               />
               <YAxis
-                domain={[0, yMax]}
+                domain={[yMin, yMax]}
                 allowDataOverflow
                 tick={{ fill: '#6b7280', fontSize: 10 }}
                 tickLine={false}
@@ -590,6 +623,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
                   <CustomTooltip
                     {...props}
                     range={range}
+                    yMin={yMin}
                     yMax={yMax}
                     stackOrder={stackOrder}
                   />
