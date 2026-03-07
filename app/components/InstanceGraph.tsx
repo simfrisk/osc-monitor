@@ -146,9 +146,10 @@ interface InstanceGraphProps {
   mutedTenants?: string[];
   onMute?: (tenant: string) => void;
   onUnmute?: (tenant: string) => void;
+  internalTenants?: string[];
 }
 
-export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute }: InstanceGraphProps) {
+export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute, internalTenants = [] }: InstanceGraphProps) {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
@@ -266,7 +267,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   const activeSeries: ActiveSeries[] = isInDrilldown
     ? drilldownSeries.map((s) => ({ key: s.service, data: s.data }))
     : series
-        .filter((s) => !mutedTenants.includes(s.namespace))
+        .filter((s) => !mutedTenants.includes(s.namespace) && !internalTenants.includes(s.namespace))
         .map((s) => ({ key: s.namespace, data: s.data }));
 
   const activeColors = isInDrilldown ? drilldownColors : tenantColors;
@@ -344,7 +345,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
         .map((s) => ({ name: s.service, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count)
     : series
-        .filter((s) => !mutedTenants.includes(s.namespace))
+        .filter((s) => !mutedTenants.includes(s.namespace) && !internalTenants.includes(s.namespace))
         .map((s) => ({ name: s.namespace, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count);
 

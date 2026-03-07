@@ -49,18 +49,12 @@ interface NotificationPanelProps {
   internalTenants: string[];
   onAddInternal: (tenant: string) => void;
   onRemoveInternal: (tenant: string) => void;
+  hideInternal: boolean;
+  onHideInternalChange: (value: boolean) => void;
 }
 
-export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal }: NotificationPanelProps) {
+export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal, hideInternal, onHideInternalChange }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
-  const [hideInternal, setHideInternal] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem('osc-monitor-hide-internal') === 'true';
-    } catch {
-      return false;
-    }
-  });
   const [isMuted, setIsMuted] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -89,10 +83,6 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
       setNotifPermission(Notification.permission as NotifPermission);
     }
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('osc-monitor-hide-internal', String(hideInternal));
-  }, [hideInternal]);
 
   useEffect(() => {
     localStorage.setItem('osc-monitor-is-muted', String(isMuted));
@@ -229,7 +219,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
             <input
               type="checkbox"
               checked={hideInternal}
-              onChange={(e) => setHideInternal(e.target.checked)}
+              onChange={(e) => onHideInternalChange(e.target.checked)}
               className="rounded"
             />
             Hide internal

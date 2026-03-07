@@ -26,6 +26,12 @@ export default function Home() {
       return stored ? JSON.parse(stored) : DEFAULT_INTERNAL_TENANTS;
     } catch { return DEFAULT_INTERNAL_TENANTS; }
   });
+  const [hideInternal, setHideInternal] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('osc-monitor-hide-internal') === 'true';
+    } catch { return false; }
+  });
 
   useEffect(() => {
     localStorage.setItem('osc-monitor-muted-tenants', JSON.stringify(mutedTenants));
@@ -34,6 +40,10 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem('osc-monitor-internal-tenants', JSON.stringify(internalTenants));
   }, [internalTenants]);
+
+  useEffect(() => {
+    localStorage.setItem('osc-monitor-hide-internal', String(hideInternal));
+  }, [hideInternal]);
 
   const handleMute = (tenant: string) =>
     setMutedTenants((prev) => (prev.includes(tenant) ? prev : [...prev, tenant]));
@@ -74,12 +84,20 @@ export default function Home() {
             internalTenants={internalTenants}
             onAddInternal={handleAddInternal}
             onRemoveInternal={handleRemoveInternal}
+            hideInternal={hideInternal}
+            onHideInternalChange={setHideInternal}
           />
         </div>
 
         {/* Instance graph - half height on mobile, rest on desktop */}
         <div className="h-1/2 md:h-auto flex-1 flex flex-col overflow-hidden">
-          <InstanceGraph focusTenant={focusTenant} mutedTenants={mutedTenants} onMute={handleMute} onUnmute={handleUnmute} />
+          <InstanceGraph
+            focusTenant={focusTenant}
+            mutedTenants={mutedTenants}
+            onMute={handleMute}
+            onUnmute={handleUnmute}
+            internalTenants={hideInternal ? internalTenants : []}
+          />
         </div>
       </main>
     </div>
