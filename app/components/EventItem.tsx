@@ -60,12 +60,34 @@ export default function EventItem({ event, onMute, onTenantClick }: EventItemPro
       </span>
       <span className="text-sm text-gray-200 flex-1 leading-tight">{description}</span>
       {hovered && (
-        <button
-          onClick={() => onMute(event.tenant)}
-          className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-300 px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
-        >
-          Mute
-        </button>
+        <>
+          <a
+            href={`https://ops-ui.osaas.io/d/45a4f896-1072-4957-ad18-9b4f0c1e77ef/tenant?orgId=1&from=now-2d&to=now&timezone=browser&var-tenant=${event.tenant}&refresh=5m`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex-shrink-0 text-xs text-gray-500 hover:text-orange-400 transition-colors"
+            title={`Open ${event.tenant} in Grafana`}
+          >
+            ⎍
+          </a>
+          <a
+            href={`https://app.osaas.io/admin/tenant/${event.tenant}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex-shrink-0 text-xs text-gray-500 hover:text-blue-400 transition-colors"
+            title={`Open ${event.tenant} in admin`}
+          >
+            ↗
+          </a>
+          <button
+            onClick={() => onMute(event.tenant)}
+            className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-300 px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+          >
+            Mute
+          </button>
+        </>
       )}
     </div>
   );

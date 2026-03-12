@@ -77,6 +77,26 @@ export default function TenantSidebar({
                 style={{ backgroundColor: color }}
               />
               <span className="text-xs text-gray-200 flex-1 truncate">{item.name}</span>
+              <a
+                href={`https://ops-ui.osaas.io/d/45a4f896-1072-4957-ad18-9b4f0c1e77ef/tenant?orgId=1&from=now-2d&to=now&timezone=browser&var-tenant=${item.name}&refresh=5m`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-orange-400 transition-all text-xs leading-none flex-shrink-0"
+                title={`Open ${item.name} in Grafana`}
+              >
+                ⎍
+              </a>
+              <a
+                href={`https://app.osaas.io/admin/tenant/${item.name}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-400 transition-all text-xs leading-none flex-shrink-0"
+                title={`Open ${item.name} in admin`}
+              >
+                ↗
+              </a>
               {onMute && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onMute(item.name); }}
