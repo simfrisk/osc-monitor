@@ -57,7 +57,6 @@ interface NotificationPanelProps {
 
 export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal, hideInternal, onHideInternalChange, isFullscreen, onToggleFullscreen }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
-  const [tenantEmails, setTenantEmails] = useState<Record<string, string>>({});
   const [isMuted, setIsMuted] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -176,13 +175,6 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
   }, [loadingOlder, hasMore]);
 
   useEffect(() => { fetchInitial(); }, [fetchInitial]);
-
-  useEffect(() => {
-    fetch('/api/contacts')
-      .then((r) => r.ok ? r.json() : { emails: {} })
-      .then((data) => setTenantEmails(data.emails || {}))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     const interval = setInterval(pollNew, POLL_INTERVAL);
@@ -320,7 +312,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
         )}
 
         {filteredEvents.map((event) => (
-          <EventItem key={event.id} event={event} onMute={handleMute} onTenantClick={onTenantClick} tenantEmail={tenantEmails[event.tenant]} />
+          <EventItem key={event.id} event={event} onMute={handleMute} onTenantClick={onTenantClick} />
         ))}
 
         {/* Scroll sentinel - triggers older fetch when visible */}
