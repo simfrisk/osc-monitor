@@ -88,7 +88,6 @@ function CustomTooltip({ active, payload, label, tooltipDataRef }: TooltipProps)
   const { stackOrder, yMin, yMax, range } = tooltipDataRef.current;
 
   if (!active || !payload || !label) return null;
-  const items = payload.filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
 
   // Determine which stacked band the cursor is in using recharts' exact plot area
   let hoveredKey: string | null = null;
@@ -120,27 +119,36 @@ function CustomTooltip({ active, payload, label, tooltipDataRef }: TooltipProps)
     }
   }
 
-  const hoveredItem = hoveredKey ? items.find((p) => p.name === hoveredKey) : null;
+  // Find hovered index in the stack, then get the neighbour above and below
+  const payloadMap = new Map(payload.map((p) => [p.name, p]));
+  const activeStackKeys = stackOrder.filter((k) => (payloadMap.get(k)?.value ?? 0) > 0);
+  const hoveredIdx = hoveredKey ? activeStackKeys.indexOf(hoveredKey) : -1;
+  const visibleKeys = new Set<string>();
+  if (hoveredKey) visibleKeys.add(hoveredKey);
+  if (hoveredIdx > 0) visibleKeys.add(activeStackKeys[hoveredIdx - 1]);
+  if (hoveredIdx < activeStackKeys.length - 1) visibleKeys.add(activeStackKeys[hoveredIdx + 1]);
+
+  // Show in visual order: top neighbour first, then hovered, then bottom neighbour
+  const displayKeys = activeStackKeys.filter((k) => visibleKeys.has(k)).reverse();
+
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded p-2 text-xs shadow-xl max-h-64 overflow-y-auto min-w-[160px]">
+    <div className="bg-gray-900 border border-gray-700 rounded p-2 text-xs shadow-xl min-w-[160px]">
       <div className="text-gray-400 mb-1">{typeof label === 'number' ? formatTime(label, range) : label}</div>
-      {hoveredItem && (
-        <div className="flex items-center gap-2 py-1 mb-1 border-b border-gray-700">
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hoveredItem.color }} />
-          <span className="text-white font-bold flex-1">{hoveredItem.name}</span>
-          <span className="text-white font-bold pl-2">{hoveredItem.value}</span>
-        </div>
-      )}
-      {items.map((item) => {
-        const isHovered = item.name === hoveredKey;
+      {displayKeys.map((key) => {
+        const item = payloadMap.get(key);
+        if (!item) return null;
+        const isHovered = key === hoveredKey;
         return (
           <div
-            key={item.name}
-            className={`flex items-center gap-2 py-0.5 ${isHovered ? 'opacity-100' : 'opacity-60'}`}
+            key={key}
+            className={`flex items-center gap-2 py-0.5 ${isHovered ? 'opacity-100' : 'opacity-50'}`}
           >
-            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-            <span className="text-gray-300 flex-1">{item.name}</span>
-            <span className="text-white font-medium ml-auto pl-4">{item.value}</span>
+            <span
+              className={`rounded-full flex-shrink-0 ${isHovered ? 'w-2.5 h-2.5' : 'w-2 h-2'}`}
+              style={{ backgroundColor: item.color }}
+            />
+            <span className={`flex-1 ${isHovered ? 'text-white font-bold' : 'text-gray-300'}`}>{item.name}</span>
+            <span className={`ml-auto pl-4 ${isHovered ? 'text-white font-bold' : 'text-white font-medium'}`}>{item.value}</span>
           </div>
         );
       })}
