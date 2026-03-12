@@ -19,9 +19,10 @@ interface EventItemProps {
   event: PlatformEvent;
   onMute: (tenant: string) => void;
   onTenantClick?: (tenant: string) => void;
+  tenantEmail?: string;
 }
 
-export default function EventItem({ event, onMute, onTenantClick }: EventItemProps) {
+export default function EventItem({ event, onMute, onTenantClick, tenantEmail }: EventItemProps) {
   const [hovered, setHovered] = useState(false);
 
   const tenantEl = onTenantClick ? (
@@ -58,7 +59,12 @@ export default function EventItem({ event, onMute, onTenantClick }: EventItemPro
       <span className="text-xs text-gray-500 flex-shrink-0 w-14 text-right">
         {timeAgo(event.timestamp)}
       </span>
-      <span className="text-sm text-gray-200 flex-1 leading-tight">{description}</span>
+      <span className="flex-1 min-w-0">
+        <span className="text-sm text-gray-200 leading-tight block">{description}</span>
+        {tenantEmail && hovered && (
+          <span className="text-xs text-gray-500 leading-tight block truncate">{tenantEmail}</span>
+        )}
+      </span>
       {hovered && (
         <>
           <a
