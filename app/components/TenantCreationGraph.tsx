@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import type { SignupBucket, SignupRange } from '../api/tenants/signups/route';
 
-type GraphTab = 'instances' | 'tenants';
+type GraphTab = 'instances' | 'tenants' | 'retention';
 
 interface TenantCreationGraphProps {
   graphTab: GraphTab;
@@ -135,6 +135,16 @@ export default function TenantCreationGraph({
               }`}
             >
               Signups
+            </button>
+            <button
+              onClick={() => onGraphTabChange('retention')}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                graphTab === 'retention'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+            >
+              Retention
             </button>
           </div>
           <h2 className="text-sm font-semibold text-gray-100">Tenant Signups</h2>

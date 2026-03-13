@@ -5,8 +5,9 @@ import { useState, useEffect } from 'react';
 const NotificationPanel = dynamic(() => import('./components/NotificationPanel'), { ssr: false });
 const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr: false });
 const TenantCreationGraph = dynamic(() => import('./components/TenantCreationGraph'), { ssr: false });
+const RetentionChart = dynamic(() => import('./components/RetentionChart'), { ssr: false });
 
-type GraphTab = 'instances' | 'tenants';
+type GraphTab = 'instances' | 'tenants' | 'retention';
 
 const DEFAULT_INTERNAL_TENANTS = [
   'eyevinn', 'eyevinnlab', 'simonsteam', 'team2',
@@ -113,8 +114,15 @@ export default function Home() {
                 graphTab={graphTab}
                 onGraphTabChange={setGraphTab}
               />
-            ) : (
+            ) : graphTab === 'tenants' ? (
               <TenantCreationGraph
+                graphTab={graphTab}
+                onGraphTabChange={setGraphTab}
+                isFullscreen={fullscreenPanel === 'graph'}
+                onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+              />
+            ) : (
+              <RetentionChart
                 graphTab={graphTab}
                 onGraphTabChange={setGraphTab}
                 isFullscreen={fullscreenPanel === 'graph'}
