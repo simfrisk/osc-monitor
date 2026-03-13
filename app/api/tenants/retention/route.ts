@@ -43,7 +43,8 @@ async function fetchSignupDays(fromSecs: number, toSecs: number): Promise<Map<st
   return map;
 }
 
-async function fetchMcpTenants(fromSecs: number, toSecs: number): Promise<Set<string>> {
+// Returns tenant -> Set<dateKey> for MCP activity, and a Set of all tenants that ever used MCP
+async function fetchMcpActivity(fromSecs: number, toSecs: number): Promise<{ days: Map<string, Set<string>>; tenants: Set<string> }> {
   const streams = await lokiQuery(
     '{job="osaas/ai-manager"} |= "tenantId"',
     fromSecs,
@@ -51,15 +52,21 @@ async function fetchMcpTenants(fromSecs: number, toSecs: number): Promise<Set<st
     5000,
     'forward'
   );
+  const days = new Map<string, Set<string>>();
   const tenants = new Set<string>();
   for (const stream of streams) {
-    for (const [, line] of stream.values) {
+    for (const [ts, line] of stream.values) {
       // msg field contains JSON: {...,"tenantId":"spino",...}
       const match = line.match(/"tenantId":"([^"]+)"/);
-      if (match) tenants.add(match[1]);
+      if (!match) continue;
+      const tenant = match[1];
+      tenants.add(tenant);
+      const day = dayKey(tsNsToMs(ts));
+      if (!days.has(tenant)) days.set(tenant, new Set());
+      days.get(tenant)!.add(day);
     }
   }
-  return tenants;
+  return { days, tenants };
 }
 
 async function fetchActivityChunk(fromSecs: number, toSecs: number): Promise<Map<string, Set<string>>> {
@@ -136,22 +143,28 @@ export async function GET() {
     chunks.push({ from, to: Math.min(from + CHUNK_SECS, nowSecs) });
   }
 
-  // Fetch activity chunks, Loki signups, Valkey history, MCP tenants in parallel
-  const [chunkMaps, lokiSignups, signupHistory, historicalEngaged, mcpTenants] = await Promise.all([
+  // Fetch activity chunks, Loki signups, Valkey history, MCP activity in parallel
+  const [chunkMaps, lokiSignups, signupHistory, historicalEngaged, mcpActivity] = await Promise.all([
     Promise.all(chunks.map((c) => fetchActivityChunk(c.from, c.to))),
     fetchSignupDays(fromSecs, nowSecs),
     loadSignupHistory(),
     loadEngagedTenants(),
-    fetchMcpTenants(fromSecs, nowSecs),
+    fetchMcpActivity(fromSecs, nowSecs),
   ]);
+  const mcpTenants = mcpActivity.tenants;
 
-  // Merge into single activity map: tenant -> Set<dateKey>
+  // Merge into single activity map: tenant -> Set<dateKey> (GUI + MCP)
   const activityMap = new Map<string, Set<string>>();
   for (const cmap of chunkMaps) {
     for (const [tenant, days] of cmap) {
       if (!activityMap.has(tenant)) activityMap.set(tenant, new Set());
       for (const d of days) activityMap.get(tenant)!.add(d);
     }
+  }
+  // Merge MCP activity days so MCP-only users count toward retention
+  for (const [tenant, days] of mcpActivity.days) {
+    if (!activityMap.has(tenant)) activityMap.set(tenant, new Set());
+    for (const d of days) activityMap.get(tenant)!.add(d);
   }
 
   // Build signup map: seed from Valkey (full history), then overlay fresh Loki data
