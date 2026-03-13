@@ -57,7 +57,7 @@ async function fetchMcpActivity(fromSecs: number, toSecs: number): Promise<{ day
   for (const stream of streams) {
     for (const [ts, line] of stream.values) {
       // msg field contains JSON: {...,"tenantId":"spino",...}
-      const match = line.match(/"tenantId":"([^"]+)"/);
+      const match = line.match(/\\"tenantId\\":\\"([^\\"]+)\\"/);
       if (!match) continue;
       const tenant = match[1];
       tenants.add(tenant);
