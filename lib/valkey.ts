@@ -67,6 +67,7 @@ export interface EngagedTenant {
   lastSeen: string;   // YYYY-MM-DD
   signupDay?: string; // YYYY-MM-DD if known
   savedAt: string;    // ISO timestamp of when this record was last written
+  usesMcp?: boolean;
 }
 
 /** Load all historically saved engaged tenants from Valkey. */

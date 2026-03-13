@@ -43,6 +43,25 @@ async function fetchSignupDays(fromSecs: number, toSecs: number): Promise<Map<st
   return map;
 }
 
+async function fetchMcpTenants(fromSecs: number, toSecs: number): Promise<Set<string>> {
+  const streams = await lokiQuery(
+    '{job="osaas/ai-manager"} |= "tenantId"',
+    fromSecs,
+    toSecs,
+    5000,
+    'forward'
+  );
+  const tenants = new Set<string>();
+  for (const stream of streams) {
+    for (const [, line] of stream.values) {
+      // msg field contains JSON: {...,"tenantId":"spino",...}
+      const match = line.match(/"tenantId":"([^"]+)"/);
+      if (match) tenants.add(match[1]);
+    }
+  }
+  return tenants;
+}
+
 async function fetchActivityChunk(fromSecs: number, toSecs: number): Promise<Map<string, Set<string>>> {
   const streams = await lokiQuery(
     '{job="gui/ui"} |= "audit" |~ "customer="',
@@ -95,6 +114,7 @@ export interface ReturningTenant {
   lastSeen: string;   // YYYY-MM-DD
   signupDay?: string; // YYYY-MM-DD if known
   historical?: boolean; // true if from saved history, not current Loki window
+  usesMcp?: boolean;  // true if tenant has used the MCP server
 }
 
 export interface RetentionResponse {
@@ -116,12 +136,13 @@ export async function GET() {
     chunks.push({ from, to: Math.min(from + CHUNK_SECS, nowSecs) });
   }
 
-  // Fetch activity chunks, Loki signups, Valkey history in parallel
-  const [chunkMaps, lokiSignups, signupHistory, historicalEngaged] = await Promise.all([
+  // Fetch activity chunks, Loki signups, Valkey history, MCP tenants in parallel
+  const [chunkMaps, lokiSignups, signupHistory, historicalEngaged, mcpTenants] = await Promise.all([
     Promise.all(chunks.map((c) => fetchActivityChunk(c.from, c.to))),
     fetchSignupDays(fromSecs, nowSecs),
     loadSignupHistory(),
     loadEngagedTenants(),
+    fetchMcpTenants(fromSecs, nowSecs),
   ]);
 
   // Merge into single activity map: tenant -> Set<dateKey>
@@ -168,6 +189,7 @@ export async function GET() {
         firstSeen: sorted[0],
         lastSeen: sorted[sorted.length - 1],
         signupDay: signupMap.get(tenant),
+        usesMcp: mcpTenants.has(tenant),
       });
     }
   }
@@ -183,6 +205,7 @@ export async function GET() {
         lastSeen: t.lastSeen,
         signupDay: t.signupDay,
         savedAt: new Date().toISOString(),
+        usesMcp: t.usesMcp,
       });
     }
   }
@@ -200,6 +223,7 @@ export async function GET() {
         lastSeen: h.lastSeen,
         signupDay: h.signupDay,
         historical: true,
+        usesMcp: h.usesMcp || mcpTenants.has(h.tenant),
       });
     }
   }

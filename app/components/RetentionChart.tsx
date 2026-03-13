@@ -235,6 +235,7 @@ export default function RetentionChart({
                           <th className="text-center py-1 px-2 font-medium">Days active</th>
                           <th className="text-left py-1 px-2 font-medium">Signed up</th>
                           <th className="text-left py-1 px-2 font-medium">Last seen</th>
+                          <th className="text-center py-1 px-2 font-medium">MCP</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -251,6 +252,11 @@ export default function RetentionChart({
                             </td>
                             <td className="py-1.5 px-2 text-gray-500">{t.signupDay ?? '—'}</td>
                             <td className="py-1.5 px-2 text-gray-400">{t.lastSeen}</td>
+                            <td className="py-1.5 px-2 text-center">
+                              {t.usesMcp && (
+                                <span className="text-purple-400 font-semibold" title="Uses MCP">MCP</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
