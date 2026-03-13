@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 
 const NotificationPanel = dynamic(() => import('./components/NotificationPanel'), { ssr: false });
 const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr: false });
+const TenantCreationGraph = dynamic(() => import('./components/TenantCreationGraph'), { ssr: false });
+
+type GraphTab = 'instances' | 'tenants';
 
 const DEFAULT_INTERNAL_TENANTS = [
   'eyevinn', 'eyevinnlab', 'simonsteam', 'team2',
@@ -13,6 +16,7 @@ const DEFAULT_INTERNAL_TENANTS = [
 export default function Home() {
   const [focusTenant, setFocusTenant] = useState<string | null>(null);
   const [fullscreenPanel, setFullscreenPanel] = useState<'events' | 'graph' | null>(null);
+  const [graphTab, setGraphTab] = useState<GraphTab>('instances');
   const [mutedTenants, setMutedTenants] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -94,18 +98,29 @@ export default function Home() {
           </div>
         )}
 
-        {/* Instance graph - half height on mobile, rest on desktop */}
+        {/* Graph panel - half height on mobile, rest on desktop */}
         {fullscreenPanel !== 'events' && (
           <div className={`${fullscreenPanel === 'graph' ? 'flex-1' : 'h-1/2 md:h-auto flex-1'} flex flex-col overflow-hidden`}>
-            <InstanceGraph
-              focusTenant={focusTenant}
-              mutedTenants={mutedTenants}
-              onMute={handleMute}
-              onUnmute={handleUnmute}
-              internalTenants={hideInternal ? internalTenants : []}
-              isFullscreen={fullscreenPanel === 'graph'}
-              onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
-            />
+            {graphTab === 'instances' ? (
+              <InstanceGraph
+                focusTenant={focusTenant}
+                mutedTenants={mutedTenants}
+                onMute={handleMute}
+                onUnmute={handleUnmute}
+                internalTenants={hideInternal ? internalTenants : []}
+                isFullscreen={fullscreenPanel === 'graph'}
+                onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+                graphTab={graphTab}
+                onGraphTabChange={setGraphTab}
+              />
+            ) : (
+              <TenantCreationGraph
+                graphTab={graphTab}
+                onGraphTabChange={setGraphTab}
+                isFullscreen={fullscreenPanel === 'graph'}
+                onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+              />
+            )}
           </div>
         )}
       </main>

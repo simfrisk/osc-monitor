@@ -169,6 +169,8 @@ const RANGE_MS: Record<TimeRange, number> = {
   '7d': 604_800_000,
 };
 
+type GraphTab = 'instances' | 'tenants';
+
 interface InstanceGraphProps {
   focusTenant?: string | null;
   mutedTenants?: string[];
@@ -177,9 +179,11 @@ interface InstanceGraphProps {
   internalTenants?: string[];
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  graphTab?: GraphTab;
+  onGraphTabChange?: (tab: GraphTab) => void;
 }
 
-export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute, internalTenants = [], isFullscreen, onToggleFullscreen }: InstanceGraphProps) {
+export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, onUnmute, internalTenants = [], isFullscreen, onToggleFullscreen, graphTab = 'instances', onGraphTabChange }: InstanceGraphProps) {
   const [range, setRange] = useState<TimeRange>('6h');
   const [series, setSeries] = useState<TenantSeries[]>([]);
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
@@ -492,6 +496,30 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
       {/* Graph Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
         <div className="flex items-center gap-2">
+          {onGraphTabChange && !soloedTenant && (
+            <div className="flex items-center gap-1 mr-1">
+              <button
+                onClick={() => onGraphTabChange('instances')}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  graphTab === 'instances'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+              >
+                Instances
+              </button>
+              <button
+                onClick={() => onGraphTabChange('tenants')}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  graphTab === 'tenants'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+              >
+                Signups
+              </button>
+            </div>
+          )}
           {soloedTenant && (
             <button
               onClick={() => setSoloedTenant(null)}
