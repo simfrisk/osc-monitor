@@ -57,6 +57,46 @@ export async function getLatestSignupTs(): Promise<number | null> {
   }
 }
 
+// Hash key: field = tenantName, value = JSON EngagedTenant
+const ENGAGED_KEY = 'retention:engaged';
+
+export interface EngagedTenant {
+  tenant: string;
+  activeDays: number;
+  firstSeen: string;  // YYYY-MM-DD
+  lastSeen: string;   // YYYY-MM-DD
+  signupDay?: string; // YYYY-MM-DD if known
+  savedAt: string;    // ISO timestamp of when this record was last written
+}
+
+/** Load all historically saved engaged tenants from Valkey. */
+export async function loadEngagedTenants(): Promise<EngagedTenant[]> {
+  const redis = getClient();
+  if (!redis) return [];
+  try {
+    const raw = await redis.hgetall(ENGAGED_KEY);
+    if (!raw) return [];
+    return Object.values(raw).map((v) => JSON.parse(v as string) as EngagedTenant);
+  } catch {
+    return [];
+  }
+}
+
+/** Save/update engaged tenants (always overwrites with latest data). */
+export async function saveEngagedTenants(tenants: EngagedTenant[]): Promise<void> {
+  const redis = getClient();
+  if (!redis || tenants.length === 0) return;
+  try {
+    const pipeline = redis.pipeline();
+    for (const t of tenants) {
+      pipeline.hset(ENGAGED_KEY, t.tenant, JSON.stringify(t));
+    }
+    await pipeline.exec();
+  } catch {
+    // Non-fatal
+  }
+}
+
 /** Save new signup events to Valkey. Uses NX so existing members are never overwritten. */
 export async function saveSignupEvents(events: StoredSignup[]): Promise<void> {
   const redis = getClient();

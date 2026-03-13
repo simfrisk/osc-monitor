@@ -21,6 +21,7 @@ interface RetentionChartProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   internalTenants?: string[];
+  mutedTenants?: string[];
 }
 
 function rateColor(rate: number): string {
@@ -76,6 +77,8 @@ export default function RetentionChart({
   onGraphTabChange,
   isFullscreen,
   onToggleFullscreen,
+  internalTenants = [],
+  mutedTenants = [],
 }: RetentionChartProps) {
   const [data, setData] = useState<RetentionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -214,41 +217,48 @@ export default function RetentionChart({
             </div>
 
             {/* Returning tenants list */}
-            {data.returningTenants.length > 0 && (
-              <div className="flex-shrink-0">
-                <p className="text-xs text-gray-500 mb-2">
-                  Returning tenants — active on 2+ days in the last {data.windowDays}d
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-500">
-                        <th className="text-left py-1 pr-3 font-medium">Tenant</th>
-                        <th className="text-center py-1 px-2 font-medium">Days active</th>
-                        <th className="text-left py-1 px-2 font-medium">Signed up</th>
-                        <th className="text-left py-1 px-2 font-medium">Last seen</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.returningTenants.map((t: ReturningTenant) => (
-                        <tr key={t.tenant} className="border-t border-gray-800">
-                          <td className="py-1.5 pr-3 text-blue-400 font-medium">{t.tenant}</td>
-                          <td className="py-1.5 px-2 text-center">
-                            <span className={`font-semibold ${t.activeDays >= 5 ? 'text-emerald-400' : t.activeDays >= 3 ? 'text-amber-400' : 'text-gray-300'}`}>
-                              {t.activeDays}
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2 text-gray-500">
-                            {t.signupDay ?? '—'}
-                          </td>
-                          <td className="py-1.5 px-2 text-gray-400">{t.lastSeen}</td>
+            {(() => {
+              const excluded = new Set([...internalTenants, ...mutedTenants]);
+              const visible = data.returningTenants.filter((t: ReturningTenant) => !excluded.has(t.tenant));
+              if (visible.length === 0) return null;
+              return (
+                <div className="flex-shrink-0">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Returning tenants — active on 2+ days in the last {data.windowDays}d
+                    {excluded.size > 0 && <span className="ml-1">(internal/muted hidden)</span>}
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-500">
+                          <th className="text-left py-1 pr-3 font-medium">Tenant</th>
+                          <th className="text-center py-1 px-2 font-medium">Days active</th>
+                          <th className="text-left py-1 px-2 font-medium">Signed up</th>
+                          <th className="text-left py-1 px-2 font-medium">Last seen</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {visible.map((t: ReturningTenant) => (
+                          <tr key={t.tenant} className={`border-t border-gray-800 ${t.historical ? 'opacity-50' : ''}`}>
+                            <td className="py-1.5 pr-3 font-medium">
+                              <span className={t.historical ? 'text-gray-400' : 'text-blue-400'}>{t.tenant}</span>
+                              {t.historical && <span className="ml-1 text-gray-600 text-xs">hist</span>}
+                            </td>
+                            <td className="py-1.5 px-2 text-center">
+                              <span className={`font-semibold ${t.activeDays >= 5 ? 'text-emerald-400' : t.activeDays >= 3 ? 'text-amber-400' : 'text-gray-300'}`}>
+                                {t.activeDays}
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-2 text-gray-500">{t.signupDay ?? '—'}</td>
+                            <td className="py-1.5 px-2 text-gray-400">{t.lastSeen}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Day retention bar chart */}
             <div className="flex-shrink-0">

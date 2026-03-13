@@ -127,6 +127,8 @@ export default function Home() {
                 onGraphTabChange={setGraphTab}
                 isFullscreen={fullscreenPanel === 'graph'}
                 onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+                internalTenants={hideInternal ? internalTenants : []}
+                mutedTenants={mutedTenants}
               />
             )}
           </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { lokiQuery } from '@/lib/grafana';
-import { loadSignupHistory } from '@/lib/valkey';
+import { loadSignupHistory, loadEngagedTenants, saveEngagedTenants } from '@/lib/valkey';
+import type { EngagedTenant } from '@/lib/valkey';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,6 +94,7 @@ export interface ReturningTenant {
   firstSeen: string;  // YYYY-MM-DD
   lastSeen: string;   // YYYY-MM-DD
   signupDay?: string; // YYYY-MM-DD if known
+  historical?: boolean; // true if from saved history, not current Loki window
 }
 
 export interface RetentionResponse {
@@ -114,11 +116,12 @@ export async function GET() {
     chunks.push({ from, to: Math.min(from + CHUNK_SECS, nowSecs) });
   }
 
-  // Fetch activity chunks and Loki signups in parallel
-  const [chunkMaps, lokiSignups, signupHistory] = await Promise.all([
+  // Fetch activity chunks, Loki signups, Valkey history in parallel
+  const [chunkMaps, lokiSignups, signupHistory, historicalEngaged] = await Promise.all([
     Promise.all(chunks.map((c) => fetchActivityChunk(c.from, c.to))),
     fetchSignupDays(fromSecs, nowSecs),
     loadSignupHistory(),
+    loadEngagedTenants(),
   ]);
 
   // Merge into single activity map: tenant -> Set<dateKey>
@@ -154,12 +157,12 @@ export async function GET() {
 
   // "Returning" = active on 2+ distinct days in the activity window (any tenant)
   let returningUsers = 0;
-  const returningTenants: ReturningTenant[] = [];
+  const currentReturning = new Map<string, ReturningTenant>();
   for (const [tenant, activeDays] of activityMap) {
     if (activeDays.size >= 2) {
       returningUsers++;
       const sorted = [...activeDays].sort();
-      returningTenants.push({
+      currentReturning.set(tenant, {
         tenant,
         activeDays: activeDays.size,
         firstSeen: sorted[0],
@@ -168,8 +171,44 @@ export async function GET() {
       });
     }
   }
-  // Sort by most active days first, then by most recent
-  returningTenants.sort((a, b) => b.activeDays - a.activeDays || b.lastSeen.localeCompare(a.lastSeen));
+
+  // Save tenants with 3+ active days to Valkey for historical tracking
+  const toSave: EngagedTenant[] = [];
+  for (const t of currentReturning.values()) {
+    if (t.activeDays >= 3) {
+      toSave.push({
+        tenant: t.tenant,
+        activeDays: t.activeDays,
+        firstSeen: t.firstSeen,
+        lastSeen: t.lastSeen,
+        signupDay: t.signupDay,
+        savedAt: new Date().toISOString(),
+      });
+    }
+  }
+  // Fire-and-forget, non-blocking
+  saveEngagedTenants(toSave).catch(() => {});
+
+  // Merge current window with historical: historical tenants not in current window
+  const returningTenants: ReturningTenant[] = [...currentReturning.values()];
+  for (const h of historicalEngaged) {
+    if (!currentReturning.has(h.tenant)) {
+      returningTenants.push({
+        tenant: h.tenant,
+        activeDays: h.activeDays,
+        firstSeen: h.firstSeen,
+        lastSeen: h.lastSeen,
+        signupDay: h.signupDay,
+        historical: true,
+      });
+    }
+  }
+
+  // Sort: current first (by days desc), then historical (by lastSeen desc)
+  returningTenants.sort((a, b) => {
+    if (a.historical !== b.historical) return a.historical ? 1 : -1;
+    return b.activeDays - a.activeDays || b.lastSeen.localeCompare(a.lastSeen);
+  });
 
   const tenantInfos: TenantInfo[] = [];
   let signupsInWindow = 0;
