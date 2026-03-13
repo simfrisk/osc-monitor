@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import type { RetentionResponse, DayRetentionPoint } from '../api/tenants/retention/route';
+import type { RetentionResponse, DayRetentionPoint, ReturningTenant } from '../api/tenants/retention/route';
 
 type GraphTab = 'instances' | 'tenants' | 'retention';
 
@@ -212,6 +212,43 @@ export default function RetentionChart({
                 sub={data.summary.signupsInWindow > 0 ? `of ${data.summary.signupsInWindow} recent signups` : 'no recent signups tracked'}
               />
             </div>
+
+            {/* Returning tenants list */}
+            {data.returningTenants.length > 0 && (
+              <div className="flex-shrink-0">
+                <p className="text-xs text-gray-500 mb-2">
+                  Returning tenants — active on 2+ days in the last {data.windowDays}d
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500">
+                        <th className="text-left py-1 pr-3 font-medium">Tenant</th>
+                        <th className="text-center py-1 px-2 font-medium">Days active</th>
+                        <th className="text-left py-1 px-2 font-medium">Signed up</th>
+                        <th className="text-left py-1 px-2 font-medium">Last seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.returningTenants.map((t: ReturningTenant) => (
+                        <tr key={t.tenant} className="border-t border-gray-800">
+                          <td className="py-1.5 pr-3 text-blue-400 font-medium">{t.tenant}</td>
+                          <td className="py-1.5 px-2 text-center">
+                            <span className={`font-semibold ${t.activeDays >= 5 ? 'text-emerald-400' : t.activeDays >= 3 ? 'text-amber-400' : 'text-gray-300'}`}>
+                              {t.activeDays}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-gray-500">
+                            {t.signupDay ?? '—'}
+                          </td>
+                          <td className="py-1.5 px-2 text-gray-400">{t.lastSeen}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Day retention bar chart */}
             <div className="flex-shrink-0">

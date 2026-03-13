@@ -87,10 +87,19 @@ export interface CohortRow {
   weeks: Array<{ n: number; retained: number; rate: number }>;
 }
 
+export interface ReturningTenant {
+  tenant: string;
+  activeDays: number;
+  firstSeen: string;  // YYYY-MM-DD
+  lastSeen: string;   // YYYY-MM-DD
+  signupDay?: string; // YYYY-MM-DD if known
+}
+
 export interface RetentionResponse {
   summary: RetentionSummary;
   dayRetention: DayRetentionPoint[];
   cohorts: CohortRow[];
+  returningTenants: ReturningTenant[];
   windowDays: number;
 }
 
@@ -145,9 +154,22 @@ export async function GET() {
 
   // "Returning" = active on 2+ distinct days in the activity window (any tenant)
   let returningUsers = 0;
-  for (const activeDays of activityMap.values()) {
-    if (activeDays.size >= 2) returningUsers++;
+  const returningTenants: ReturningTenant[] = [];
+  for (const [tenant, activeDays] of activityMap) {
+    if (activeDays.size >= 2) {
+      returningUsers++;
+      const sorted = [...activeDays].sort();
+      returningTenants.push({
+        tenant,
+        activeDays: activeDays.size,
+        firstSeen: sorted[0],
+        lastSeen: sorted[sorted.length - 1],
+        signupDay: signupMap.get(tenant),
+      });
+    }
   }
+  // Sort by most active days first, then by most recent
+  returningTenants.sort((a, b) => b.activeDays - a.activeDays || b.lastSeen.localeCompare(a.lastSeen));
 
   const tenantInfos: TenantInfo[] = [];
   let signupsInWindow = 0;
@@ -245,6 +267,7 @@ export async function GET() {
     },
     dayRetention,
     cohorts,
+    returningTenants,
     windowDays: WINDOW_DAYS,
   } satisfies RetentionResponse);
 }
