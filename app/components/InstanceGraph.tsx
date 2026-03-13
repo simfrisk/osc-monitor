@@ -186,6 +186,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [soloedTenant, setSoloedTenant] = useState<string | null>(null);
   const [drilldownSeries, setDrilldownSeries] = useState<ServiceSeries[]>([]);
   const [drilldownColors, setDrilldownColors] = useState<Record<string, string>>({});
@@ -346,7 +347,18 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
 
   const activeColors = isInDrilldown ? drilldownColors : tenantColors;
 
-  const sortedByPeak = activeSeries
+  // Tenants that had at least one value change in the selected timeframe
+  const tenantsWithChanges = new Set(
+    activeSeries
+      .filter((s) => s.data.some((d, i, arr) => i > 0 && d.value !== arr[i - 1].value))
+      .map((s) => s.key)
+  );
+
+  const filteredSeries = !isInDrilldown && showActiveOnly
+    ? activeSeries.filter((s) => tenantsWithChanges.has(s.key))
+    : activeSeries;
+
+  const sortedByPeak = filteredSeries
     .map((s) => ({ key: s.key, peak: s.data.length ? Math.max(...s.data.map((d) => d.value)) : 0 }))
     .sort((a, b) => b.peak - a.peak);
 
@@ -424,13 +436,14 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
     ? drilldownSeries
         .map((s) => ({ name: s.service, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count)
-    : series
-        .filter((s) => !mutedTenants.includes(s.namespace) && !internalTenants.includes(s.namespace))
-        .map((s) => ({ name: s.namespace, count: latestValue(s.data) }))
+    : filteredSeries
+        .map((s) => ({ name: s.key, count: latestValue(s.data) }))
         .sort((a, b) => b.count - a.count);
 
   const sidebarLabel = isInDrilldown
     ? `Services (${drilldownSeries.length})`
+    : showActiveOnly
+    ? `Active (${filteredSeries.length})`
     : `Tenants (${series.length})`;
 
   const isLoading = loading || loadingDrilldown;
@@ -494,17 +507,30 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
         </div>
         <div className="flex items-center gap-1">
           {!isInDrilldown && (
-            <button
-              onClick={() => setShowAll((prev) => !prev)}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                showAll
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-              title={showAll ? `Show top ${TOP_N} tenants` : 'Show all tenants'}
-            >
-              {showAll ? `Top ${TOP_N}` : 'All'}
-            </button>
+            <>
+              <button
+                onClick={() => setShowActiveOnly((prev) => !prev)}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  showActiveOnly
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+                title={showActiveOnly ? 'Show all tenants' : 'Show only tenants with changes in this timeframe'}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => setShowAll((prev) => !prev)}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  showAll
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+                title={showAll ? `Show top ${TOP_N} tenants` : 'Show all tenants'}
+              >
+                {showAll ? `Top ${TOP_N}` : 'All'}
+              </button>
+            </>
           )}
           {(zoomDomain || yZoomLevel > 1) && (
             <button
