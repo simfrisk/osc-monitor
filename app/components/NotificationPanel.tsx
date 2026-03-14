@@ -1,6 +1,34 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+
+function useSecondsAgo(isoTimestamp: string | null): number | null {
+  const [secs, setSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const compute = () =>
+      setSecs(Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+    compute();
+    const interval = setInterval(compute, 10_000);
+    return () => clearInterval(interval);
+  }, [isoTimestamp]);
+  return secs;
+}
+
+function FreshnessLabel({ fetchedAt, error }: { fetchedAt: string | null; error: boolean }) {
+  const secs = useSecondsAgo(fetchedAt);
+  if (secs === null) return null;
+  const label =
+    secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <span
+      className={`hidden md:inline text-xs ${error ? 'text-amber-500' : 'text-gray-600'}`}
+      title={fetchedAt ?? undefined}
+    >
+      {error ? `Last updated ${label}` : `Updated ${label}`}
+    </span>
+  );
+}
 import type { PlatformEvent } from '../api/events/route';
 import EventItem from './EventItem';
 import MutedTenants from './MutedTenants';
@@ -57,6 +85,7 @@ interface NotificationPanelProps {
 
 export default function NotificationPanel({ onTenantClick, mutedTenants, onMute, onUnmute, internalTenants, onAddInternal, onRemoveInternal, hideInternal, onHideInternalChange, isFullscreen, onToggleFullscreen }: NotificationPanelProps) {
   const [events, setEvents] = useState<PlatformEvent[]>([]);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -107,6 +136,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
       setHasMore(data.hasMore ?? false);
       if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
       if (data.oldestTimestamp) oldestEventTimeRef.current = data.oldestTimestamp;
+      if (data.fetchedAt) setFetchedAt(data.fetchedAt);
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -132,6 +162,7 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
           return [...trulyNew, ...prev];
         });
         if (data.latestTimestamp) lastEventTimeRef.current = data.latestTimestamp;
+        if (data.fetchedAt) setFetchedAt(data.fetchedAt);
         // Fire macOS notification + audio ping for genuinely new events (skip muted/internal)
         setTimeout(() => {
           const notifiable = trulyNew.filter(
@@ -252,11 +283,10 @@ export default function NotificationPanel({ onTenantClick, mutedTenants, onMute,
               </button>
             )
           )}
-          {lastPoll && (
-            <span className="hidden md:inline text-xs text-gray-600">
-              {lastPoll.toLocaleTimeString()}
-            </span>
+          {!loading && error && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Grafana unavailable</span>
           )}
+          <FreshnessLabel fetchedAt={fetchedAt} error={!!error} />
           {onToggleFullscreen && (
             <button
               onClick={onToggleFullscreen}

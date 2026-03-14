@@ -48,5 +48,5 @@ export async function GET(req: NextRequest) {
     }))
     .filter((s) => s.data.some((d) => d.value > 0));
 
-  return NextResponse.json({ series, range, step });
+  return NextResponse.json({ series, range, step, fetchedAt: new Date().toISOString() });
 }

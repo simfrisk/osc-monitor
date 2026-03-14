@@ -208,6 +208,7 @@ export interface EngagementResponse {
   tenants: EngagementTenant[];
   summary: EngagementSummary;
   asOf: string;
+  fetchedAt: string;
 }
 
 export async function GET() {
@@ -346,9 +347,11 @@ export async function GET() {
   };
   tenants.sort((a, b) => BUCKET_RANK_OUT[a.bucket] - BUCKET_RANK_OUT[b.bucket]);
 
+  const now = new Date().toISOString();
   return NextResponse.json({
     tenants,
     summary,
-    asOf: new Date().toISOString(),
+    asOf: now,
+    fetchedAt: now,
   } satisfies EngagementResponse);
 }

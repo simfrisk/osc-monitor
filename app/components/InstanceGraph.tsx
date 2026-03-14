@@ -1,6 +1,34 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+
+function useSecondsAgo(isoTimestamp: string | null): number | null {
+  const [secs, setSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const compute = () =>
+      setSecs(Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+    compute();
+    const interval = setInterval(compute, 10_000);
+    return () => clearInterval(interval);
+  }, [isoTimestamp]);
+  return secs;
+}
+
+function GraphFreshnessLabel({ fetchedAt, error }: { fetchedAt: string | null; error: boolean }) {
+  const secs = useSecondsAgo(fetchedAt);
+  if (secs === null) return null;
+  const label =
+    secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <span
+      className={`text-xs ${error ? 'text-amber-500' : 'text-gray-600'}`}
+      title={fetchedAt ?? undefined}
+    >
+      {error ? `Last updated ${label}` : `Updated ${label}`}
+    </span>
+  );
+}
 import type { PlatformEvent } from '../api/events/route';
 import {
   AreaChart,
@@ -189,6 +217,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
   const [tenantColors, setTenantColors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [soloedTenant, setSoloedTenant] = useState<string | null>(null);
@@ -223,6 +252,7 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
       newSeries.forEach((s, i) => { colors[s.namespace] = getColor(i); });
       setTenantColors(colors);
       setSeries(newSeries);
+      setFetchedAt(data.fetchedAt ?? new Date().toISOString());
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -562,6 +592,10 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
           <h2 className="text-sm font-semibold text-gray-100">
             {soloedTenant ?? 'Instance Graph'}
           </h2>
+          {!loading && error && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Grafana unavailable</span>
+          )}
+          <GraphFreshnessLabel fetchedAt={fetchedAt} error={!!error} />
         </div>
         <div className="flex items-center gap-1">
           {!isInDrilldown && (

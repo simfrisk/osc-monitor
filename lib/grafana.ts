@@ -3,6 +3,8 @@ const GRAFANA_TOKEN = process.env.GRAFANA_TOKEN || '';
 const LOKI_UID = process.env.LOKI_UID || 'ce673d8c-9728-44c7-8c78-8c10df447caa';
 const PROM_UID = process.env.PROM_UID || 'dbc6c44d-10b7-4ba1-b18a-af74de200791';
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export const LOKI_BASE = `${GRAFANA_URL}/api/datasources/proxy/uid/${LOKI_UID}/loki/api/v1`;
 export const PROM_BASE = `${GRAFANA_URL}/api/datasources/proxy/uid/${PROM_UID}/api/v1`;
 
@@ -10,6 +12,19 @@ export const AUTH_HEADERS = {
   Authorization: `Bearer ${GRAFANA_TOKEN}`,
   'Content-Type': 'application/json',
 };
+
+/** Returns a fetch init object with a 10-second AbortController timeout merged in. */
+function withTimeout(init: RequestInit = {}): RequestInit {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('Request timed out after 10s')), REQUEST_TIMEOUT_MS);
+  // Attach cleanup so the timer is cleared if the request finishes first
+  const originalSignal = init.signal as AbortSignal | undefined;
+  if (originalSignal) {
+    originalSignal.addEventListener('abort', () => clearTimeout(timer));
+  }
+  controller.signal.addEventListener('abort', () => clearTimeout(timer));
+  return { ...init, signal: controller.signal };
+}
 
 export interface LokiStream {
   stream: Record<string, string>;
@@ -54,7 +69,7 @@ export async function lokiQuery(
   });
 
   const url = `${LOKI_BASE}/query_range?${params}`;
-  const res = await fetch(url, { headers: AUTH_HEADERS, next: { revalidate: 0 } });
+  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
 
   if (!res.ok) {
     console.error(`Loki query failed: ${res.status} ${res.statusText}`);
@@ -80,7 +95,7 @@ export async function promQueryRange(
   });
 
   const url = `${PROM_BASE}/query_range?${params}`;
-  const res = await fetch(url, { headers: AUTH_HEADERS, next: { revalidate: 0 } });
+  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
 
   if (!res.ok) {
     console.error(`Prometheus range query failed: ${res.status} ${res.statusText}`);
@@ -95,7 +110,7 @@ export async function promQueryRange(
 export async function promQuery(query: string): Promise<PrometheusResult[]> {
   const params = new URLSearchParams({ query });
   const url = `${PROM_BASE}/query?${params}`;
-  const res = await fetch(url, { headers: AUTH_HEADERS, next: { revalidate: 0 } });
+  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
 
   if (!res.ok) {
     console.error(`Prometheus query failed: ${res.status} ${res.statusText}`);

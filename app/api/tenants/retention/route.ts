@@ -130,6 +130,7 @@ export interface RetentionResponse {
   cohorts: CohortRow[];
   returningTenants: ReturningTenant[];
   windowDays: number;
+  fetchedAt: string;
 }
 
 export async function GET() {
@@ -345,5 +346,6 @@ export async function GET() {
     cohorts,
     returningTenants,
     windowDays: WINDOW_DAYS,
+    fetchedAt: new Date().toISOString(),
   } satisfies RetentionResponse);
 }

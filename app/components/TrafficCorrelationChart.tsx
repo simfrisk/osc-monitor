@@ -15,6 +15,34 @@ import {
 import type { VisitorRange, VisitorDay } from '../api/umami/visitors/route';
 import type { SignupBucket, SignupRange } from '../api/tenants/signups/route';
 
+function useSecondsAgo(isoTimestamp: string | null): number | null {
+  const [secs, setSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const compute = () =>
+      setSecs(Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+    compute();
+    const interval = setInterval(compute, 10_000);
+    return () => clearInterval(interval);
+  }, [isoTimestamp]);
+  return secs;
+}
+
+function FreshnessLabel({ fetchedAt, error }: { fetchedAt: string | null; error: boolean }) {
+  const secs = useSecondsAgo(fetchedAt);
+  if (secs === null) return null;
+  const label =
+    secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <span
+      className={`text-xs ${error ? 'text-amber-500' : 'text-gray-600'}`}
+      title={fetchedAt ?? undefined}
+    >
+      {error ? `Last updated ${label}` : `Updated ${label}`}
+    </span>
+  );
+}
+
 type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 interface TrafficCorrelationChartProps {
@@ -83,6 +111,8 @@ export default function TrafficCorrelationChart({
   const [merged, setMerged] = useState<MergedPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  const [umamiUnavailable, setUmamiUnavailable] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async (r: VisitorRange) => {
@@ -91,6 +121,7 @@ export default function TrafficCorrelationChart({
     abortRef.current = controller;
     setIsLoading(true);
     setError(null);
+    setUmamiUnavailable(false);
 
     try {
       const [visitorsRes, signupsRes] = await Promise.all([
@@ -98,7 +129,10 @@ export default function TrafficCorrelationChart({
         fetch(`/api/tenants/signups?range=${r as SignupRange}`, { signal: controller.signal }),
       ]);
 
-      if (!visitorsRes.ok) throw new Error(`Visitors API: HTTP ${visitorsRes.status}`);
+      if (!visitorsRes.ok) {
+        setUmamiUnavailable(true);
+        throw new Error(`Visitors API: HTTP ${visitorsRes.status}`);
+      }
       if (!signupsRes.ok) throw new Error(`Signups API: HTTP ${signupsRes.status}`);
 
       const visitorsData: { days: VisitorDay[] } = await visitorsRes.json();
@@ -122,6 +156,7 @@ export default function TrafficCorrelationChart({
       }));
 
       setMerged(points);
+      setFetchedAt(new Date().toISOString());
     } catch (err) {
       if (!controller.signal.aborted) {
         setError(err instanceof Error ? err.message : String(err));
@@ -170,6 +205,13 @@ export default function TrafficCorrelationChart({
               {totalVisitors.toLocaleString()} visits · {conversionRate}% conversion
             </span>
           )}
+          {!isLoading && error && umamiUnavailable && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Umami unavailable</span>
+          )}
+          {!isLoading && error && !umamiUnavailable && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Grafana unavailable</span>
+          )}
+          <FreshnessLabel fetchedAt={fetchedAt} error={!!error} />
         </div>
 
         <div className="flex items-center gap-1">

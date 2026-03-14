@@ -20,7 +20,16 @@ async function getTenantServices(namespace: string): Promise<string[]> {
 
   try {
     const url = `${LOKI_BASE}/series?${params}`;
-    const res = await fetch(url, { headers: AUTH_HEADERS, next: { revalidate: 0 } });
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(new Error('Request timed out after 10s')),
+      10_000
+    );
+    const res = await fetch(url, {
+      headers: AUTH_HEADERS,
+      next: { revalidate: 0 },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
     if (!res.ok) return [];
     const data = await res.json();
     if (data.status !== 'success') return [];
@@ -60,5 +69,5 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({ tenants });
+  return NextResponse.json({ tenants, fetchedAt: new Date().toISOString() });
 }

@@ -23,6 +23,7 @@ export interface VisitorDay {
 export interface VisitorsResponse {
   days: VisitorDay[];
   range: VisitorRange;
+  fetchedAt: string;
 }
 
 interface UmamiDataPoint {
@@ -87,9 +88,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ days: result, range } satisfies VisitorsResponse);
+    return NextResponse.json({ days: result, range, fetchedAt: new Date().toISOString() } satisfies VisitorsResponse);
   } catch (err) {
     console.error('Umami visitors fetch error:', err);
-    return NextResponse.json({ days: [], range, error: String(err) }, { status: 500 });
+    return NextResponse.json({ days: [], range, fetchedAt: new Date().toISOString(), error: String(err) }, { status: 500 });
   }
 }

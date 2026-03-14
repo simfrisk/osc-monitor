@@ -11,6 +11,7 @@ export interface TopReferrer {
 export interface TopReferrersResponse {
   referrers: TopReferrer[];
   asOf: string;
+  fetchedAt: string;
 }
 
 interface UmamiMetric {
@@ -35,12 +36,15 @@ export async function GET() {
       .slice(0, 5)
       .map((m) => ({ source: m.x, count: m.y }));
 
+    const now = new Date().toISOString();
     return NextResponse.json({
       referrers,
-      asOf: new Date().toISOString(),
+      asOf: now,
+      fetchedAt: now,
     } satisfies TopReferrersResponse);
   } catch (err) {
     console.error('Umami referrers fetch error:', err);
-    return NextResponse.json({ referrers: [], asOf: new Date().toISOString(), error: String(err) }, { status: 500 });
+    const now = new Date().toISOString();
+    return NextResponse.json({ referrers: [], asOf: now, fetchedAt: now, error: String(err) }, { status: 500 });
   }
 }

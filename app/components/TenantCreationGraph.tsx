@@ -14,6 +14,34 @@ import {
 } from 'recharts';
 import type { SignupBucket, SignupRange } from '../api/tenants/signups/route';
 
+function useSecondsAgo(isoTimestamp: string | null): number | null {
+  const [secs, setSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const compute = () =>
+      setSecs(Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+    compute();
+    const interval = setInterval(compute, 10_000);
+    return () => clearInterval(interval);
+  }, [isoTimestamp]);
+  return secs;
+}
+
+function FreshnessLabel({ fetchedAt, error }: { fetchedAt: string | null; error: boolean }) {
+  const secs = useSecondsAgo(fetchedAt);
+  if (secs === null) return null;
+  const label =
+    secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <span
+      className={`text-xs ${error ? 'text-amber-500' : 'text-gray-600'}`}
+      title={fetchedAt ?? undefined}
+    >
+      {error ? `Last updated ${label}` : `Updated ${label}`}
+    </span>
+  );
+}
+
 type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 interface TenantCreationGraphProps {
@@ -71,6 +99,7 @@ export default function TenantCreationGraph({
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async (r: SignupRange) => {
@@ -90,6 +119,7 @@ export default function TenantCreationGraph({
       if (!controller.signal.aborted) {
         setBuckets(data.buckets || []);
         setTotal(data.total || 0);
+        setFetchedAt(data.fetchedAt ?? new Date().toISOString());
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -174,6 +204,10 @@ export default function TenantCreationGraph({
               {total} total
             </span>
           )}
+          {!isLoading && error && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Grafana unavailable</span>
+          )}
+          <FreshnessLabel fetchedAt={fetchedAt} error={!!error} />
         </div>
 
         <div className="flex items-center gap-1">

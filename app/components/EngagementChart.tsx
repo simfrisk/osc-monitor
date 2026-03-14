@@ -13,6 +13,34 @@ import {
 } from 'recharts';
 import type { EngagementResponse, EngagementSummary, EngagementTenant } from '../api/tenants/engagement/route';
 
+function useSecondsAgo(isoTimestamp: string | null): number | null {
+  const [secs, setSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const compute = () =>
+      setSecs(Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+    compute();
+    const interval = setInterval(compute, 10_000);
+    return () => clearInterval(interval);
+  }, [isoTimestamp]);
+  return secs;
+}
+
+function FreshnessLabel({ fetchedAt, error }: { fetchedAt: string | null; error: boolean }) {
+  const secs = useSecondsAgo(fetchedAt);
+  if (secs === null) return null;
+  const label =
+    secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <span
+      className={`text-xs ${error ? 'text-amber-500' : 'text-gray-600'}`}
+      title={fetchedAt ?? undefined}
+    >
+      {error ? `Last updated ${label}` : `Updated ${label}`}
+    </span>
+  );
+}
+
 type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 interface EngagementChartProps {
@@ -134,6 +162,8 @@ export default function EngagementChart({
   const [data, setData] = useState<EngagementResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  const [contactListUrl, setContactListUrl] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -143,6 +173,7 @@ export default function EngagementChart({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: EngagementResponse = await res.json();
       setData(json);
+      setFetchedAt(json.fetchedAt ?? new Date().toISOString());
     } catch (e) {
       setError(String(e));
     } finally {
@@ -153,6 +184,14 @@ export default function EngagementChart({
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Fetch contact list URL once on mount
+  useEffect(() => {
+    fetch('/api/config/contact-list-url')
+      .then((r) => r.json())
+      .then((d: { url: string }) => setContactListUrl(d.url))
+      .catch(() => {});
+  }, []);
 
   const cohortData = data ? buildCohortData(data.summary) : [];
   const timeToFirstData = data ? buildTimeToFirstData(data.tenants) : [];
@@ -183,6 +222,10 @@ export default function EngagementChart({
           {!isLoading && !error && data && (
             <span className="text-xs text-gray-500">{data.summary.total} tenants</span>
           )}
+          {!isLoading && error && (
+            <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded">Grafana unavailable</span>
+          )}
+          <FreshnessLabel fetchedAt={fetchedAt} error={!!error} />
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -351,7 +394,19 @@ export default function EngagementChart({
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: BUCKET_COLORS[t.bucket] }}
                       />
-                      <span className="text-gray-200 truncate font-mono">{t.tenantId}</span>
+                      {contactListUrl ? (
+                        <a
+                          href={`${contactListUrl}?search=${encodeURIComponent(t.tenantId)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 truncate font-mono transition-colors"
+                          title={`Open ${t.tenantId} in contact list`}
+                        >
+                          {t.tenantId}
+                        </a>
+                      ) : (
+                        <span className="text-gray-200 truncate font-mono">{t.tenantId}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0 ml-2">
                       <span className="text-gray-500" title={t.lastActivityAt ?? 'no activity'}>

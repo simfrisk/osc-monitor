@@ -358,7 +358,7 @@ export async function GET(req: NextRequest) {
         allEvents.length > 0
           ? new Date(allEvents[0].timestamp).toISOString()
           : sinceParam;
-      return NextResponse.json({ events: allEvents, count: allEvents.length, latestTimestamp, hasMore: false });
+      return NextResponse.json({ events: allEvents, count: allEvents.length, latestTimestamp, hasMore: false, fetchedAt: new Date().toISOString() });
     } catch (err) {
       console.error('Events fetch error:', err);
       return NextResponse.json({ events: [], count: 0, error: String(err) }, { status: 500 });
@@ -398,6 +398,7 @@ export async function GET(req: NextRequest) {
       latestTimestamp,
       oldestTimestamp,
       hasMore,
+      fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
     console.error('Events fetch error:', err);

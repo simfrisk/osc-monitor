@@ -63,6 +63,7 @@ export interface SignupsResponse {
   range: SignupRange;
   /** ISO timestamp of oldest known signup event */
   oldestKnown?: string;
+  fetchedAt: string;
 }
 
 /** Fetch new signup events from Loki between fromSecs and toSecs. */
@@ -199,6 +200,7 @@ export async function GET(req: NextRequest) {
       total: inRange.length,
       range,
       oldestKnown,
+      fetchedAt: new Date().toISOString(),
     } satisfies SignupsResponse);
   } catch (err) {
     console.error('Tenant signups fetch error:', err);

@@ -40,5 +40,5 @@ export async function GET(req: NextRequest) {
     }))
     .filter((s) => s.data.some((d) => d.value > 0));
 
-  return NextResponse.json({ series, namespace: tenant, range });
+  return NextResponse.json({ series, namespace: tenant, range, fetchedAt: new Date().toISOString() });
 }
