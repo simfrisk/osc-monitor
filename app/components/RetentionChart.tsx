@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import type { RetentionResponse, DayRetentionPoint, ReturningTenant } from '../api/tenants/retention/route';
 
-type GraphTab = 'instances' | 'tenants' | 'retention';
+type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
 
 interface RetentionChartProps {
   graphTab: GraphTab;
@@ -148,6 +148,16 @@ export default function RetentionChart({
               }`}
             >
               Retention
+            </button>
+            <button
+              onClick={() => onGraphTabChange('traffic')}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                graphTab === 'traffic'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+            >
+              Traffic
             </button>
           </div>
           <h2 className="text-sm font-semibold text-gray-100">User Retention</h2>

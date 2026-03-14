@@ -12,25 +12,33 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import type { VisitorRange, VisitorDay } from '../api/umami/visitors/route';
 import type { SignupBucket, SignupRange } from '../api/tenants/signups/route';
 
 type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
 
-interface TenantCreationGraphProps {
+interface TrafficCorrelationChartProps {
   graphTab: GraphTab;
   onGraphTabChange: (tab: GraphTab) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
 }
 
-const RANGES: { label: string; value: SignupRange }[] = [
+// Ranges that work for both Umami and Grafana signups
+const RANGES: { label: string; value: VisitorRange }[] = [
   { label: '1W', value: '7d' },
   { label: '1M', value: '30d' },
   { label: '3M', value: '90d' },
   { label: '6M', value: '180d' },
-  { label: '1Y', value: '365d' },
-  { label: 'All', value: 'all' },
 ];
+
+interface MergedPoint {
+  label: string;
+  date: string;
+  visitors: number; // unique sessions (visitor proxy)
+  pageviews: number;
+  signups: number;
+}
 
 interface TooltipPayloadItem {
   name: string;
@@ -60,45 +68,66 @@ function CustomTooltip({
   );
 }
 
-export default function TenantCreationGraph({
+function tsToDateKey(tsMs: number): string {
+  const d = new Date(tsMs);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export default function TrafficCorrelationChart({
   graphTab,
   onGraphTabChange,
   isFullscreen,
   onToggleFullscreen,
-}: TenantCreationGraphProps) {
-  const [range, setRange] = useState<SignupRange>('30d');
-  const [buckets, setBuckets] = useState<SignupBucket[]>([]);
-  const [total, setTotal] = useState(0);
+}: TrafficCorrelationChartProps) {
+  const [range, setRange] = useState<VisitorRange>('30d');
+  const [merged, setMerged] = useState<MergedPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchData = useCallback(async (r: SignupRange) => {
+  const fetchData = useCallback(async (r: VisitorRange) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/tenants/signups?range=${r}`, {
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!controller.signal.aborted) {
-        setBuckets(data.buckets || []);
-        setTotal(data.total || 0);
+      const [visitorsRes, signupsRes] = await Promise.all([
+        fetch(`/api/umami/visitors?range=${r}`, { signal: controller.signal }),
+        fetch(`/api/tenants/signups?range=${r as SignupRange}`, { signal: controller.signal }),
+      ]);
+
+      if (!visitorsRes.ok) throw new Error(`Visitors API: HTTP ${visitorsRes.status}`);
+      if (!signupsRes.ok) throw new Error(`Signups API: HTTP ${signupsRes.status}`);
+
+      const visitorsData: { days: VisitorDay[] } = await visitorsRes.json();
+      const signupsData: { buckets: SignupBucket[] } = await signupsRes.json();
+
+      if (controller.signal.aborted) return;
+
+      // Build signup map keyed by YYYY-MM-DD
+      const signupMap = new Map<string, number>();
+      for (const bucket of signupsData.buckets ?? []) {
+        signupMap.set(tsToDateKey(bucket.timestamp), bucket.count);
       }
+
+      // Merge visitor days with signup counts
+      const points: MergedPoint[] = (visitorsData.days ?? []).map((day) => ({
+        label: day.label,
+        date: day.date,
+        visitors: day.visitors,
+        pageviews: day.pageviews,
+        signups: signupMap.get(day.date) ?? 0,
+      }));
+
+      setMerged(points);
     } catch (err) {
       if (!controller.signal.aborted) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      if (!controller.signal.aborted) {
-        setIsLoading(false);
-      }
+      if (!controller.signal.aborted) setIsLoading(false);
     }
   }, []);
 
@@ -107,8 +136,12 @@ export default function TenantCreationGraph({
     return () => abortRef.current?.abort();
   }, [range, fetchData]);
 
-  const hasData = buckets.some((b) => b.count > 0);
-  const maxY = Math.max(...buckets.map((b) => b.cumulative), ...buckets.map((b) => b.count), 1);
+  const hasData = merged.some((p) => p.visitors > 0 || p.signups > 0);
+  const totalVisitors = merged.reduce((s, p) => s + p.visitors, 0);
+  const totalSignups = merged.reduce((s, p) => s + p.signups, 0);
+  const conversionRate =
+    totalVisitors > 0 ? ((totalSignups / totalVisitors) * 100).toFixed(1) : '—';
+  const maxY = Math.max(...merged.map((p) => p.visitors), ...merged.map((p) => p.signups), 1);
 
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
@@ -117,57 +150,29 @@ export default function TenantCreationGraph({
         <div className="flex items-center gap-2">
           {/* Tab switcher */}
           <div className="flex items-center gap-1 mr-1">
-            <button
-              onClick={() => onGraphTabChange('instances')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                graphTab === 'instances'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-            >
-              Instances
-            </button>
-            <button
-              onClick={() => onGraphTabChange('tenants')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                graphTab === 'tenants'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-            >
-              Signups
-            </button>
-            <button
-              onClick={() => onGraphTabChange('retention')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                graphTab === 'retention'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-            >
-              Retention
-            </button>
-            <button
-              onClick={() => onGraphTabChange('traffic')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                graphTab === 'traffic'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-              }`}
-            >
-              Traffic
-            </button>
+            {(['instances', 'tenants', 'retention', 'traffic'] as GraphTab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => onGraphTabChange(tab)}
+                className={`px-2.5 py-1 text-xs rounded transition-colors capitalize ${
+                  graphTab === tab
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+              >
+                {tab === 'tenants' ? 'Signups' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
           </div>
-          <h2 className="text-sm font-semibold text-gray-100">Tenant Signups</h2>
-          {!isLoading && !error && (
+          <h2 className="text-sm font-semibold text-gray-100">Traffic vs Signups</h2>
+          {!isLoading && !error && hasData && (
             <span className="text-xs text-gray-500">
-              {total} total
+              {totalVisitors.toLocaleString()} visits · {conversionRate}% conversion
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Range selector */}
           {RANGES.map(({ label, value }) => (
             <button
               key={value}
@@ -181,7 +186,6 @@ export default function TenantCreationGraph({
               {label}
             </button>
           ))}
-
           {onToggleFullscreen && (
             <button
               onClick={onToggleFullscreen}
@@ -194,7 +198,7 @@ export default function TenantCreationGraph({
         </div>
       </div>
 
-      {/* Chart area */}
+      {/* Chart */}
       <div className="flex-1 relative min-h-0 p-4">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -208,12 +212,12 @@ export default function TenantCreationGraph({
         )}
         {!isLoading && !error && !hasData && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-gray-600 text-sm">No signup data found for this period</div>
+            <div className="text-gray-600 text-sm">No data found for this period</div>
           </div>
         )}
         {!isLoading && !error && hasData && (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={buckets} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+            <ComposedChart data={merged} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis
                 dataKey="label"
@@ -228,26 +232,27 @@ export default function TenantCreationGraph({
                 axisLine={false}
                 tickLine={false}
                 allowDecimals={false}
-                width={28}
+                width={36}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend
                 wrapperStyle={{ fontSize: '11px', color: '#9ca3af', paddingTop: '8px' }}
               />
               <Bar
-                dataKey="count"
-                name="New signups"
-                fill="#3b82f6"
-                radius={[3, 3, 0, 0]}
-                maxBarSize={48}
+                dataKey="visitors"
+                name="Unique visits"
+                fill="#6366f1"
+                opacity={0.7}
+                radius={[2, 2, 0, 0]}
+                maxBarSize={32}
               />
               <Line
-                dataKey="cumulative"
-                name="Cumulative"
-                stroke="#10b981"
+                dataKey="signups"
+                name="New signups"
+                stroke="#f59e0b"
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 4, fill: '#10b981' }}
+                activeDot={{ r: 4, fill: '#f59e0b' }}
               />
             </ComposedChart>
           </ResponsiveContainer>

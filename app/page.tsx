@@ -6,8 +6,10 @@ const NotificationPanel = dynamic(() => import('./components/NotificationPanel')
 const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr: false });
 const TenantCreationGraph = dynamic(() => import('./components/TenantCreationGraph'), { ssr: false });
 const RetentionChart = dynamic(() => import('./components/RetentionChart'), { ssr: false });
+const TrafficCorrelationChart = dynamic(() => import('./components/TrafficCorrelationChart'), { ssr: false });
+const TopPagesStrip = dynamic(() => import('./components/TopPagesStrip'), { ssr: false });
 
-type GraphTab = 'instances' | 'tenants' | 'retention';
+type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
 
 const DEFAULT_INTERNAL_TENANTS = [
   'eyevinn', 'eyevinnlab', 'simonsteam', 'team2',
@@ -79,7 +81,7 @@ export default function Home() {
       </header>
 
       {/* Main content */}
-      <main className="flex flex-col md:flex-row flex-1 overflow-hidden gap-4 p-4">
+      <main className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden gap-4 p-4">
         {/* Notification panel - half height on mobile, 40% width on desktop */}
         {fullscreenPanel !== 'graph' && (
           <div className={`${fullscreenPanel === 'events' ? 'flex-1' : 'h-1/2 md:h-auto md:w-2/5'} flex-shrink-0 flex flex-col overflow-hidden`}>
@@ -121,7 +123,7 @@ export default function Home() {
                 isFullscreen={fullscreenPanel === 'graph'}
                 onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
               />
-            ) : (
+            ) : graphTab === 'retention' ? (
               <RetentionChart
                 graphTab={graphTab}
                 onGraphTabChange={setGraphTab}
@@ -130,10 +132,19 @@ export default function Home() {
                 internalTenants={hideInternal ? internalTenants : []}
                 mutedTenants={mutedTenants}
               />
+            ) : (
+              <TrafficCorrelationChart
+                graphTab={graphTab}
+                onGraphTabChange={setGraphTab}
+                isFullscreen={fullscreenPanel === 'graph'}
+                onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+              />
             )}
           </div>
         )}
       </main>
+
+      <TopPagesStrip />
     </div>
   );
 }
