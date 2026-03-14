@@ -7,9 +7,10 @@ const InstanceGraph = dynamic(() => import('./components/InstanceGraph'), { ssr:
 const TenantCreationGraph = dynamic(() => import('./components/TenantCreationGraph'), { ssr: false });
 const RetentionChart = dynamic(() => import('./components/RetentionChart'), { ssr: false });
 const TrafficCorrelationChart = dynamic(() => import('./components/TrafficCorrelationChart'), { ssr: false });
+const EngagementChart = dynamic(() => import('./components/EngagementChart'), { ssr: false });
 const TopPagesStrip = dynamic(() => import('./components/TopPagesStrip'), { ssr: false });
 
-type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
+type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 const DEFAULT_INTERNAL_TENANTS = [
   'eyevinn', 'eyevinnlab', 'simonsteam', 'team2',
@@ -132,8 +133,15 @@ export default function Home() {
                 internalTenants={hideInternal ? internalTenants : []}
                 mutedTenants={mutedTenants}
               />
-            ) : (
+            ) : graphTab === 'traffic' ? (
               <TrafficCorrelationChart
+                graphTab={graphTab}
+                onGraphTabChange={setGraphTab}
+                isFullscreen={fullscreenPanel === 'graph'}
+                onToggleFullscreen={() => setFullscreenPanel((prev) => prev === 'graph' ? null : 'graph')}
+              />
+            ) : (
+              <EngagementChart
                 graphTab={graphTab}
                 onGraphTabChange={setGraphTab}
                 isFullscreen={fullscreenPanel === 'graph'}

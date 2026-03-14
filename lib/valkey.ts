@@ -98,6 +98,92 @@ export async function saveEngagedTenants(tenants: EngagedTenant[]): Promise<void
   }
 }
 
+// Hash key: field = tenantId, value = JSON StoredEngagementTenant
+const ENGAGEMENT_KEY = 'engagement:tenants';
+
+export type EngagementBucket = 'never' | 'quick' | 'short' | 'extended' | 'long_term';
+
+const BUCKET_RANK: Record<EngagementBucket, number> = {
+  never: 0,
+  quick: 1,
+  short: 2,
+  extended: 3,
+  long_term: 4,
+};
+
+export interface StoredEngagementTenant {
+  tenantId: string;
+  signupAt: string | null;
+  firstInstanceAt: string | null; // never overwrite with null
+  lastInstanceAt: string | null;  // update if newer
+  lastActivityAt: string | null;  // update if newer (any audit action)
+  bucket: EngagementBucket;       // never downgrade
+  savedAt: string;
+}
+
+/** Load all stored engagement tenant records from Valkey. */
+export async function loadEngagementData(): Promise<Map<string, StoredEngagementTenant>> {
+  const redis = getClient();
+  const map = new Map<string, StoredEngagementTenant>();
+  if (!redis) return map;
+  try {
+    const raw = await redis.hgetall(ENGAGEMENT_KEY);
+    if (!raw) return map;
+    for (const [tenantId, json] of Object.entries(raw)) {
+      try {
+        map.set(tenantId, JSON.parse(json as string) as StoredEngagementTenant);
+      } catch { /* skip corrupt records */ }
+    }
+  } catch {
+    // Non-fatal
+  }
+  return map;
+}
+
+/** Merge and save engagement tenant records with accumulation rules:
+ *  - firstInstanceAt is never overwritten with null
+ *  - bucket is never downgraded
+ *  - lastInstanceAt updated if incoming is more recent
+ */
+export async function saveEngagementData(incoming: StoredEngagementTenant[]): Promise<void> {
+  const redis = getClient();
+  if (!redis || incoming.length === 0) return;
+  try {
+    // Load existing to merge with
+    const existing = await loadEngagementData();
+    const pipeline = redis.pipeline();
+    for (const next of incoming) {
+      const prev = existing.get(next.tenantId);
+      const merged: StoredEngagementTenant = {
+        tenantId: next.tenantId,
+        signupAt: prev?.signupAt ?? next.signupAt,
+        firstInstanceAt: prev?.firstInstanceAt ?? next.firstInstanceAt,
+        lastInstanceAt:
+          prev?.lastInstanceAt && next.lastInstanceAt
+            ? new Date(prev.lastInstanceAt) > new Date(next.lastInstanceAt)
+              ? prev.lastInstanceAt
+              : next.lastInstanceAt
+            : prev?.lastInstanceAt ?? next.lastInstanceAt,
+        lastActivityAt:
+          prev?.lastActivityAt && next.lastActivityAt
+            ? new Date(prev.lastActivityAt) > new Date(next.lastActivityAt)
+              ? prev.lastActivityAt
+              : next.lastActivityAt
+            : prev?.lastActivityAt ?? next.lastActivityAt,
+        bucket:
+          prev && BUCKET_RANK[prev.bucket] > BUCKET_RANK[next.bucket]
+            ? prev.bucket
+            : next.bucket,
+        savedAt: new Date().toISOString(),
+      };
+      pipeline.hset(ENGAGEMENT_KEY, next.tenantId, JSON.stringify(merged));
+    }
+    await pipeline.exec();
+  } catch {
+    // Non-fatal
+  }
+}
+
 /** Save new signup events to Valkey. Uses NX so existing members are never overwritten. */
 export async function saveSignupEvents(events: StoredSignup[]): Promise<void> {
   const redis = getClient();

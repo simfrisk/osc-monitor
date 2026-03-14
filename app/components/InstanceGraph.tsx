@@ -169,7 +169,7 @@ const RANGE_MS: Record<TimeRange, number> = {
   '7d': 604_800_000,
 };
 
-type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
+type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 interface InstanceGraphProps {
   focusTenant?: string | null;
@@ -537,6 +537,16 @@ export default function InstanceGraph({ focusTenant, mutedTenants = [], onMute, 
                 }`}
               >
                 Traffic
+              </button>
+              <button
+                onClick={() => onGraphTabChange('engagement')}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  graphTab === 'engagement'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+              >
+                Engagement
               </button>
             </div>
           )}

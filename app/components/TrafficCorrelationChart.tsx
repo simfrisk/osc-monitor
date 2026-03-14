@@ -15,7 +15,7 @@ import {
 import type { VisitorRange, VisitorDay } from '../api/umami/visitors/route';
 import type { SignupBucket, SignupRange } from '../api/tenants/signups/route';
 
-type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic';
+type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
 interface TrafficCorrelationChartProps {
   graphTab: GraphTab;
@@ -150,7 +150,7 @@ export default function TrafficCorrelationChart({
         <div className="flex items-center gap-2">
           {/* Tab switcher */}
           <div className="flex items-center gap-1 mr-1">
-            {(['instances', 'tenants', 'retention', 'traffic'] as GraphTab[]).map((tab) => (
+            {(['instances', 'tenants', 'retention', 'traffic', 'engagement'] as GraphTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => onGraphTabChange(tab)}
