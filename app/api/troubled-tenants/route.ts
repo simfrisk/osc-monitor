@@ -41,9 +41,12 @@ export async function GET() {
   );
 
   // Build a map of tenant -> error count from Loki results
+  // Loki metric queries (count_over_time with sum by) return matrix results
+  // where labels are in `metric` instead of `stream`
   const errorMap = new Map<string, number>();
   for (const stream of errorResults) {
-    const tenant = stream.stream.eyevinnlabel_customer;
+    const labels: Record<string, string> = stream.stream ?? (stream as any).metric ?? {};
+    const tenant = labels.eyevinnlabel_customer;
     if (!tenant || INTERNAL_NAMESPACES.has(tenant)) continue;
     // The last value in the stream is the most recent count
     const lastValue = stream.values[stream.values.length - 1];
