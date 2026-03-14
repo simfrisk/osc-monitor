@@ -9,6 +9,7 @@ const RetentionChart = dynamic(() => import('./components/RetentionChart'), { ss
 const TrafficCorrelationChart = dynamic(() => import('./components/TrafficCorrelationChart'), { ssr: false });
 const EngagementChart = dynamic(() => import('./components/EngagementChart'), { ssr: false });
 const TopPagesStrip = dynamic(() => import('./components/TopPagesStrip'), { ssr: false });
+const TroubledTenantsStrip = dynamic(() => import('./components/TroubledTenantsStrip'), { ssr: false });
 
 type GraphTab = 'instances' | 'tenants' | 'retention' | 'traffic' | 'engagement';
 
@@ -152,6 +153,7 @@ export default function Home() {
         )}
       </main>
 
+      <TroubledTenantsStrip onTenantClick={setFocusTenant} />
       <TopPagesStrip />
     </div>
   );
