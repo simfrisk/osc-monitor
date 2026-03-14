@@ -43,8 +43,7 @@ async function fetchSignupDays(fromSecs: number, toSecs: number): Promise<Map<st
   return map;
 }
 
-// Returns tenant -> Set<dateKey> for MCP activity, and a Set of all tenants that ever used MCP
-async function fetchMcpActivity(fromSecs: number, toSecs: number): Promise<{ days: Map<string, Set<string>>; tenants: Set<string> }> {
+async function fetchMcpActivityChunk(fromSecs: number, toSecs: number): Promise<{ days: Map<string, Set<string>>; tenants: Set<string> }> {
   const streams = await lokiQuery(
     '{job="osaas/ai-manager"} |= "tenantId"',
     fromSecs,
@@ -64,6 +63,21 @@ async function fetchMcpActivity(fromSecs: number, toSecs: number): Promise<{ day
       const day = dayKey(tsNsToMs(ts));
       if (!days.has(tenant)) days.set(tenant, new Set());
       days.get(tenant)!.add(day);
+    }
+  }
+  return { days, tenants };
+}
+
+// Returns tenant -> Set<dateKey> for MCP activity, and a Set of all tenants that ever used MCP
+async function fetchMcpActivity(chunks: { from: number; to: number }[]): Promise<{ days: Map<string, Set<string>>; tenants: Set<string> }> {
+  const chunkResults = await Promise.all(chunks.map((c) => fetchMcpActivityChunk(c.from, c.to)));
+  const days = new Map<string, Set<string>>();
+  const tenants = new Set<string>();
+  for (const result of chunkResults) {
+    for (const t of result.tenants) tenants.add(t);
+    for (const [tenant, daySet] of result.days) {
+      if (!days.has(tenant)) days.set(tenant, new Set());
+      for (const d of daySet) days.get(tenant)!.add(d);
     }
   }
   return { days, tenants };
@@ -150,7 +164,7 @@ export async function GET() {
     fetchSignupDays(fromSecs, nowSecs),
     loadSignupHistory(),
     loadEngagedTenants(),
-    fetchMcpActivity(fromSecs, nowSecs),
+    fetchMcpActivity(chunks),
   ]);
   const mcpTenants = mcpActivity.tenants;
 
