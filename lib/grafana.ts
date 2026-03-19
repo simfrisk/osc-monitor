@@ -69,7 +69,13 @@ export async function lokiQuery(
   });
 
   const url = `${LOKI_BASE}/query_range?${params}`;
-  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  let res: Response;
+  try {
+    res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  } catch (err) {
+    console.error('Loki query fetch failed:', err);
+    return [];
+  }
 
   if (!res.ok) {
     console.error(`Loki query failed: ${res.status} ${res.statusText}`);
@@ -95,7 +101,13 @@ export async function promQueryRange(
   });
 
   const url = `${PROM_BASE}/query_range?${params}`;
-  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  let res: Response;
+  try {
+    res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  } catch (err) {
+    console.error('Prometheus range query fetch failed:', err);
+    return [];
+  }
 
   if (!res.ok) {
     console.error(`Prometheus range query failed: ${res.status} ${res.statusText}`);
@@ -110,7 +122,13 @@ export async function promQueryRange(
 export async function promQuery(query: string): Promise<PrometheusResult[]> {
   const params = new URLSearchParams({ query });
   const url = `${PROM_BASE}/query?${params}`;
-  const res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  let res: Response;
+  try {
+    res = await fetch(url, withTimeout({ headers: AUTH_HEADERS, next: { revalidate: 0 } }));
+  } catch (err) {
+    console.error('Prometheus query fetch failed:', err);
+    return [];
+  }
 
   if (!res.ok) {
     console.error(`Prometheus query failed: ${res.status} ${res.statusText}`);

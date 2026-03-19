@@ -22,6 +22,15 @@ export interface TroubledTenantsResponse {
 }
 
 export async function GET() {
+  try {
+    return await getTroubledTenants();
+  } catch (err) {
+    console.error('troubled-tenants route error:', err);
+    return NextResponse.json({ tenants: [], fetchedAt: new Date().toISOString() });
+  }
+}
+
+async function getTroubledTenants() {
   const now = nowSeconds();
   const oneHourAgo = now - 3600;
 
@@ -56,7 +65,7 @@ export async function GET() {
     const tenant = labels.eyevinnlabel_customer;
     if (!tenant || INTERNAL_NAMESPACES.has(tenant)) continue;
     // The last value in the stream is the most recent count
-    const lastValue = stream.values[stream.values.length - 1];
+    const lastValue = stream.values?.[stream.values.length - 1];
     if (lastValue) {
       const count = parseInt(lastValue[1], 10);
       if (!isNaN(count)) {
@@ -180,3 +189,4 @@ export async function GET() {
 
   return NextResponse.json(response);
 }
+
